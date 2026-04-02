@@ -8,7 +8,9 @@ export const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-export async function withTransaction(work) {
+export async function withTransaction<T>(
+  work: (client: pg.PoolClient) => Promise<T>
+) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -22,4 +24,3 @@ export async function withTransaction(work) {
     client.release();
   }
 }
-
