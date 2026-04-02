@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-function required(name) {
+function required(name: string): string {
   const value = process.env[name];
   if (!value) {
     throw new Error(`Missing required env var: ${name}`);
@@ -12,7 +12,7 @@ function required(name) {
 
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
   .split(',')
-  .map((item) => item.trim())
+  .map(item => item.trim())
   .filter(Boolean);
 
 export const config = {

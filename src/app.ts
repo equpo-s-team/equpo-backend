@@ -1,16 +1,25 @@
 import cors from 'cors';
-import express from 'express';
-import { requireUser } from './auth.js';
-import { requireSystem } from './systemAuth.js';
-import { withTransaction } from './db.js';
-import { config } from './config.js';
+import express, {
+  Application,
+  ErrorRequestHandler,
+  NextFunction,
+  Request,
+  Response,
+  Router,
+} from 'express';
+import { requireUser } from '#a/auth.js';
+import { requireSystem } from '#a/systemAuth.js';
+import { withTransaction } from '#a/db.js';
+import { config } from '#a/config.js';
+import { assertBody } from '#a/utils/index.js';
 import {
-  assertBody,
   assertTeamLeaderPermission,
   assertTeamPermission,
   assertUserBelongsToTeam,
-  createAchievementSchema,
-  createSystemUserRewardSchema,
+} from '#a/domains/team/guards/index.js';
+import { createAchievementSchema } from '#a/domains/achievement/schemas/index.js';
+import { createSystemUserRewardSchema } from '#a/domains/reward/schemas/index.js';
+import {
   createTeamRewardSchema,
   createTeamSchema,
   inviteTeamMemberSchema,
@@ -18,27 +27,42 @@ import {
   teamMemberParam,
   updateTeamMemberRoleSchema,
   updateTeamSchema,
-} from './permissions.js';
+} from '#a/domains/team/schemas/index.js';
+import winston from 'winston';
+import { ERROR_STATUS, SUCCESS_STATUS } from '#a/constants/httpStatusCodes.js';
+import { EqupoError } from '#a/types/EqupoError.js';
 
-export const app = express();
+function getActorUid(req: Request): string {
+  if (!req.user) {
+    throw new EqupoError(
+      'Missing authenticated user',
+      ERROR_STATUS.UNAUTHORIZED
+    );
+  }
+  return req.user.uid;
+}
 
-app.use(cors({
-  origin(origin, callback) {
-    if (!origin || config.allowedOrigins.includes(origin)) {
-      callback(null, true);
-      return;
-    }
-    callback(new Error(`Origin not allowed: ${origin}`));
-  },
-  credentials: true,
-}));
+export const app: Application = express();
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || config.allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`Origin not allowed: ${origin}`));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
 
-const api = express.Router();
+const api: Router = express.Router();
 
 api.get('/health', (_req, res) => {
   res.json({ ok: true, prefix: config.apiPrefix });
@@ -47,9 +71,9 @@ api.get('/health', (_req, res) => {
 api.post('/teams', requireUser, async (req, res, next) => {
   try {
     const input = assertBody(createTeamSchema, req.body);
-    const actorUid = req.user.uid;
+    const actorUid = getActorUid(req);
 
-    const team = await withTransaction(async (client) => {
+    const team = await withTransaction(async client => {
       const teamResult = await client.query(
         `INSERT INTO public.team (name, leader_uid, virtual_currency, description, created_at, updated_at)
          VALUES ($1, $2, $3, $4, NOW(), NOW()) RETURNING id, name, leader_uid, virtual_currency, description`,
@@ -78,14 +102,14 @@ api.patch('/teams/:teamId', requireUser, async (req, res, next) => {
     const input = assertBody(updateTeamSchema, req.body);
 
     if (!Object.keys(input).length) {
-      return res.status(400).json({ error: 'No fields to update' });
+      return res.status(ERROR_STATUS.VALIDATION).json({ error: 'No fields to update' });
     }
 
-    const team = await withTransaction(async (client) => {
-      await assertTeamPermission(client, teamId, req.user.uid);
+    const team = await withTransaction(async client => {
+      await assertTeamPermission(client, teamId, getActorUid(req));
 
-      const updates = [];
-      const values = [];
+      const updates: string[] = [];
+      const values: Array<string | number | null> = [];
       let index = 1;
 
       if (input.name !== undefined) {
@@ -123,8 +147,8 @@ api.post('/teams/:teamId/members', requireUser, async (req, res, next) => {
     const { teamId } = teamIdParam.parse(req.params);
     const input = assertBody(inviteTeamMemberSchema, req.body);
 
-    const membership = await withTransaction(async (client) => {
-      await assertTeamPermission(client, teamId, req.user.uid);
+    const membership = await withTransaction(async client => {
+      await assertTeamPermission(client, teamId, getActorUid(req));
 
       const result = await client.query(
         `INSERT INTO public.team_membership (user_uid, team_id, role, joined_at)
@@ -136,58 +160,64 @@ api.post('/teams/:teamId/members', requireUser, async (req, res, next) => {
       );
 
       if (!result.rowCount) {
-        const error = new Error('User is already a member of this team. Use role-change endpoint to modify role.');
-        error.status = 409;
+        const error = new EqupoError(
+          'User is already a member of this team. Use role-change endpoint to modify role.'
+        );
+        error.status = ERROR_STATUS.CONFLICT;
         throw error;
       }
 
       return result.rows[0];
     });
 
-    return res.status(201).json({ membership });
+    return res.status(SUCCESS_STATUS.CREATED).json({ membership });
   } catch (error) {
     return next(error);
   }
 });
 
-api.patch('/teams/:teamId/members/:userUid/role', requireUser, async (req, res, next) => {
-  try {
-    const { teamId, userUid } = teamMemberParam.parse(req.params);
-    const input = assertBody(updateTeamMemberRoleSchema, req.body);
+api.patch(
+  '/teams/:teamId/members/:userUid/role',
+  requireUser,
+  async (req, res, next) => {
+    try {
+      const { teamId, userUid } = teamMemberParam.parse(req.params);
+      const input = assertBody(updateTeamMemberRoleSchema, req.body);
 
-    const membership = await withTransaction(async (client) => {
-      await assertTeamLeaderPermission(client, teamId, req.user.uid);
+      const membership = await withTransaction(async client => {
+        await assertTeamLeaderPermission(client, teamId, getActorUid(req));
 
-      const result = await client.query(
-        `UPDATE public.team_membership
+        const result = await client.query(
+          `UPDATE public.team_membership
          SET role = $3
          WHERE team_id = $1 AND user_uid = $2
          RETURNING user_uid, team_id, role`,
-        [teamId, userUid, input.role]
-      );
+          [teamId, userUid, input.role]
+        );
 
-      if (!result.rowCount) {
-        const error = new Error('Team membership not found');
-        error.status = 404;
-        throw error;
-      }
+        if (!result.rowCount) {
+          const error = new EqupoError('Team membership not found');
+          error.status = ERROR_STATUS.NOT_FOUND;
+          throw error;
+        }
 
-      return result.rows[0];
-    });
+        return result.rows[0];
+      });
 
-    return res.json({ membership });
-  } catch (error) {
-    return next(error);
+      return res.json({ membership });
+    } catch (error) {
+      return next(error);
+    }
   }
-});
+);
 
 api.post('/teams/:teamId/rewards', requireUser, async (req, res, next) => {
   try {
     const { teamId } = teamIdParam.parse(req.params);
     const input = assertBody(createTeamRewardSchema, req.body);
 
-    const teamReward = await withTransaction(async (client) => {
-      await assertTeamPermission(client, teamId, req.user.uid);
+    const teamReward = await withTransaction(async client => {
+      await assertTeamPermission(client, teamId, getActorUid(req));
 
       const result = await client.query(
         `INSERT INTO public.team_reward (team_id, reward_id, date_obtained, created_at, updated_at)
@@ -201,7 +231,7 @@ api.post('/teams/:teamId/rewards', requireUser, async (req, res, next) => {
       return result.rows[0];
     });
 
-    return res.status(201).json({ teamReward });
+    return res.status(SUCCESS_STATUS.CREATED).json({ teamReward });
   } catch (error) {
     return next(error);
   }
@@ -212,8 +242,8 @@ api.post('/teams/:teamId/achievements', requireUser, async (req, res, next) => {
     const { teamId } = teamIdParam.parse(req.params);
     const input = assertBody(createAchievementSchema, req.body);
 
-    const achievement = await withTransaction(async (client) => {
-      await assertTeamPermission(client, teamId, req.user.uid);
+    const achievement = await withTransaction(async client => {
+      await assertTeamPermission(client, teamId, getActorUid(req));
       await assertUserBelongsToTeam(client, teamId, input.userUid);
 
       const result = await client.query(
@@ -238,42 +268,54 @@ api.post('/teams/:teamId/achievements', requireUser, async (req, res, next) => {
   }
 });
 
-api.post('/internal/users/:userUid/rewards', requireSystem, async (req, res, next) => {
-  try {
-    const input = assertBody(createSystemUserRewardSchema, req.body);
-    const { userUid } = req.params;
+api.post(
+  '/internal/users/:userUid/rewards',
+  requireSystem,
+  async (req, res, next) => {
+    try {
+      const input = assertBody(createSystemUserRewardSchema, req.body);
+      const { userUid } = req.params;
 
-    const userReward = await withTransaction(async (client) => {
-      const result = await client.query(
-        `INSERT INTO public.user_reward (user_uid, reward_id, date_obtained, created_at, updated_at)
+      const userReward = await withTransaction(async client => {
+        const result = await client.query(
+          `INSERT INTO public.user_reward (user_uid, reward_id, date_obtained, created_at, updated_at)
          VALUES ($1, $2, COALESCE($3::timestamptz, NOW()), NOW(), NOW())
          ON CONFLICT (user_uid, reward_id)
          DO UPDATE SET updated_at = NOW()
          RETURNING user_uid, reward_id, date_obtained, updated_at`,
-        [userUid, input.rewardId, input.dateObtained ?? null]
-      );
-      return result.rows[0];
-    });
+          [userUid, input.rewardId, input.dateObtained ?? null]
+        );
+        return result.rows[0];
+      });
 
-    return res.status(201).json({ userReward });
-  } catch (error) {
-    return next(error);
+      return res.status(201).json({ userReward });
+    } catch (error) {
+      return next(error);
+    }
   }
-});
+);
 
 app.use(config.apiPrefix, api);
 
-app.use((error, _req, res, _next) => {
+const errorHandler: ErrorRequestHandler = (
+  error: EqupoError,
+  _req: Request,
+  res: Response,
+  _next: NextFunction
+) => {
   const status = Number(error.status || 500);
   if (status >= 500) {
-    console.error(error);
+    winston.error('Server error:', error);
   }
 
-  const payload = { error: error.message || 'Internal server error' };
+  const payload: { error: string; details?: EqupoError['details'] } = {
+    error: error.message || 'Internal server error',
+  };
   if (error.details) {
     payload.details = error.details;
   }
 
   res.status(status).json(payload);
-});
+};
 
+app.use(errorHandler);

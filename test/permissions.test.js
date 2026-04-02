@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { assertBody } from '../dist/utils/assertBody.js';
+import { TEAM_ALLOWED_ROLES } from '../dist/domains/team/schemas/constants.js';
+import { createTeamSchema } from '../dist/domains/team/schemas/createTeamSchema.js';
 import {
-  TEAM_ALLOWED_ROLES,
-  assertBody,
-  createTeamSchema,
   inviteTeamMemberSchema,
   updateTeamMemberRoleSchema,
-} from '../src/permissions.js';
+} from '../dist/domains/team/schemas/params.js';
 
 test('TEAM_ALLOWED_ROLES includes leader and collaborator', () => {
   assert.equal(TEAM_ALLOWED_ROLES.has('leader'), true);
