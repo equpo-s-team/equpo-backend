@@ -1,1 +1,1 @@
-export { createSystemUserRewardSchema } from './createSystemUserRewardSchema';
+export { createSystemUserRewardSchema } from './createSystemUserRewardSchema.js';

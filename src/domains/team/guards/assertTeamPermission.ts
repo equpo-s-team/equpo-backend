@@ -1,6 +1,6 @@
 import { TEAM_ALLOWED_ROLES } from '../schemas/constants.js';
-import { ERROR_STATUS } from '@/constants/httpStatusCodes';
-import { EqupoError } from '@/types/EqupoError';
+import { ERROR_STATUS } from '#a/constants/httpStatusCodes.js';
+import { EqupoError } from '#a/types/EqupoError.js';
 import { PoolClient } from 'pg';
 
 export async function assertTeamPermission(

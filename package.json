@@ -3,10 +3,14 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "imports": {
+    "#a/*": "./dist/*"
+  },
   "scripts": {
-    "dev": "nodemon src/index.ts",
-    "start": "node src/index.ts",
-    "test": "node --test",
+    "build": "tsc -p tsconfig.json",
+    "dev": "nodemon --watch src --ext ts --exec \"npm run build && node dist/index.js\"",
+    "start": "npm run build && node dist/index.js",
+    "test": "npm run build && node --test",
     "lint": "eslint src --ext .js,.ts",
     "lint:fix": "eslint src --ext .js,.ts --fix",
     "format": "prettier --write src/**/*.{js,ts,json}",
@@ -32,6 +36,7 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",
     "nodemon": "^3.1.9",
-    "prettier": "^3.8.1"
+    "prettier": "^3.8.1",
+    "typescript": "^5.8.3"
   }
 }

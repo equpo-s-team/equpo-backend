@@ -1,17 +1,24 @@
 import cors from 'cors';
-import express, { Application, Router } from 'express';
-import { requireUser } from './auth.js';
-import { requireSystem } from './systemAuth.js';
-import { withTransaction } from './db.js';
-import { config } from './config.js';
-import { assertBody } from '@/utils';
+import express, {
+  Application,
+  ErrorRequestHandler,
+  NextFunction,
+  Request,
+  Response,
+  Router,
+} from 'express';
+import { requireUser } from '#a/auth.js';
+import { requireSystem } from '#a/systemAuth.js';
+import { withTransaction } from '#a/db.js';
+import { config } from '#a/config.js';
+import { assertBody } from '#a/utils/index.js';
 import {
   assertTeamLeaderPermission,
   assertTeamPermission,
   assertUserBelongsToTeam,
-} from '@/domains/team/guards';
-import { createAchievementSchema } from '@/domains/achievement/schemas';
-import { createSystemUserRewardSchema } from './domains/reward/schemas/index.js';
+} from '#a/domains/team/guards/index.js';
+import { createAchievementSchema } from '#a/domains/achievement/schemas/index.js';
+import { createSystemUserRewardSchema } from '#a/domains/reward/schemas/index.js';
 import {
   createTeamRewardSchema,
   createTeamSchema,
@@ -20,11 +27,20 @@ import {
   teamMemberParam,
   updateTeamMemberRoleSchema,
   updateTeamSchema,
-} from '@/domains/team/schemas';
+} from '#a/domains/team/schemas/index.js';
 import winston from 'winston';
-import { ERROR_STATUS, SUCCESS_STATUS } from './constants/httpStatusCodes';
-import { EqupoError } from '@/types/EqupoError';
-import { AuthenticatedRequest } from '@/types/AuthenticatedRequest';
+import { ERROR_STATUS, SUCCESS_STATUS } from '#a/constants/httpStatusCodes.js';
+import { EqupoError } from '#a/types/EqupoError.js';
+
+function getActorUid(req: Request): string {
+  if (!req.user) {
+    throw new EqupoError(
+      'Missing authenticated user',
+      ERROR_STATUS.UNAUTHORIZED
+    );
+  }
+  return req.user.uid;
+}
 
 export const app: Application = express();
 
@@ -52,42 +68,33 @@ api.get('/health', (_req, res) => {
   res.json({ ok: true, prefix: config.apiPrefix });
 });
 
-api.post(
-  '/teams',
-  requireUser,
-  async (req: AuthenticatedRequest, res, next) => {
-    try {
-      const input = assertBody(createTeamSchema, req.body);
-      const actorUid = req.user.uid;
+api.post('/teams', requireUser, async (req, res, next) => {
+  try {
+    const input = assertBody(createTeamSchema, req.body);
+    const actorUid = getActorUid(req);
 
-      const team = await withTransaction(async client => {
-        const teamResult = await client.query(
-          `INSERT INTO public.team (name, leader_uid, virtual_currency, description, created_at, updated_at)
+    const team = await withTransaction(async client => {
+      const teamResult = await client.query(
+        `INSERT INTO public.team (name, leader_uid, virtual_currency, description, created_at, updated_at)
          VALUES ($1, $2, $3, $4, NOW(), NOW()) RETURNING id, name, leader_uid, virtual_currency, description`,
-          [
-            input.name,
-            actorUid,
-            input.virtualCurrency,
-            input.description ?? null,
-          ]
-        );
+        [input.name, actorUid, input.virtualCurrency, input.description ?? null]
+      );
 
-        await client.query(
-          `INSERT INTO public.team_membership (user_uid, team_id, role, joined_at)
+      await client.query(
+        `INSERT INTO public.team_membership (user_uid, team_id, role, joined_at)
          VALUES ($1, $2, 'leader', NOW())
          ON CONFLICT (user_uid, team_id) DO UPDATE SET role = 'leader'`,
-          [actorUid, teamResult.rows[0].id]
-        );
+        [actorUid, teamResult.rows[0].id]
+      );
 
-        return teamResult.rows[0];
-      });
+      return teamResult.rows[0];
+    });
 
-      res.status(201).json({ team });
-    } catch (error) {
-      next(error);
-    }
+    res.status(201).json({ team });
+  } catch (error) {
+    next(error);
   }
-);
+});
 
 api.patch('/teams/:teamId', requireUser, async (req, res, next) => {
   try {
@@ -95,14 +102,14 @@ api.patch('/teams/:teamId', requireUser, async (req, res, next) => {
     const input = assertBody(updateTeamSchema, req.body);
 
     if (!Object.keys(input).length) {
-      return res.status(400).json({ error: 'No fields to update' });
+      return res.status(ERROR_STATUS.VALIDATION).json({ error: 'No fields to update' });
     }
 
     const team = await withTransaction(async client => {
-      await assertTeamPermission(client, teamId, req.user.uid);
+      await assertTeamPermission(client, teamId, getActorUid(req));
 
       const updates: string[] = [];
-      const values: any[] = [];
+      const values: Array<string | number | null> = [];
       let index = 1;
 
       if (input.name !== undefined) {
@@ -141,7 +148,7 @@ api.post('/teams/:teamId/members', requireUser, async (req, res, next) => {
     const input = assertBody(inviteTeamMemberSchema, req.body);
 
     const membership = await withTransaction(async client => {
-      await assertTeamPermission(client, teamId, req.user.uid);
+      await assertTeamPermission(client, teamId, getActorUid(req));
 
       const result = await client.query(
         `INSERT INTO public.team_membership (user_uid, team_id, role, joined_at)
@@ -178,7 +185,7 @@ api.patch(
       const input = assertBody(updateTeamMemberRoleSchema, req.body);
 
       const membership = await withTransaction(async client => {
-        await assertTeamLeaderPermission(client, teamId, req.user.uid);
+        await assertTeamLeaderPermission(client, teamId, getActorUid(req));
 
         const result = await client.query(
           `UPDATE public.team_membership
@@ -210,7 +217,7 @@ api.post('/teams/:teamId/rewards', requireUser, async (req, res, next) => {
     const input = assertBody(createTeamRewardSchema, req.body);
 
     const teamReward = await withTransaction(async client => {
-      await assertTeamPermission(client, teamId, req.user.uid);
+      await assertTeamPermission(client, teamId, getActorUid(req));
 
       const result = await client.query(
         `INSERT INTO public.team_reward (team_id, reward_id, date_obtained, created_at, updated_at)
@@ -236,7 +243,7 @@ api.post('/teams/:teamId/achievements', requireUser, async (req, res, next) => {
     const input = assertBody(createAchievementSchema, req.body);
 
     const achievement = await withTransaction(async client => {
-      await assertTeamPermission(client, teamId, req.user.uid);
+      await assertTeamPermission(client, teamId, getActorUid(req));
       await assertUserBelongsToTeam(client, teamId, input.userUid);
 
       const result = await client.query(
@@ -290,16 +297,25 @@ api.post(
 
 app.use(config.apiPrefix, api);
 
-app.use((error, _req, res) => {
+const errorHandler: ErrorRequestHandler = (
+  error: EqupoError,
+  _req: Request,
+  res: Response,
+  _next: NextFunction
+) => {
   const status = Number(error.status || 500);
   if (status >= 500) {
     winston.error('Server error:', error);
   }
 
-  const payload = { error: error.message || 'Internal server error' };
+  const payload: { error: string; details?: EqupoError['details'] } = {
+    error: error.message || 'Internal server error',
+  };
   if (error.details) {
     payload.details = error.details;
   }
 
   res.status(status).json(payload);
-});
+};
+
+app.use(errorHandler);

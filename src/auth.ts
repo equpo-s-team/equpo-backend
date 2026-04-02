@@ -1,8 +1,11 @@
 import { NextFunction, RequestHandler, Request, Response } from 'express';
 import winston from 'winston';
-import { AuthenticatedRequest } from '@/types/AuthenticatedRequest';
 import admin from 'firebase-admin';
-import { ERROR_STATUS } from '@/constants/httpStatusCodes';
+import { ERROR_STATUS } from '#a/constants/httpStatusCodes.js';
+
+if (!admin.apps.length) {
+  admin.initializeApp();
+}
 
 export const requireUser: RequestHandler = async (
   req: Request,
@@ -20,10 +23,12 @@ export const requireUser: RequestHandler = async (
     }
 
     const decoded = await admin.auth().verifyIdToken(token);
-    (req as AuthenticatedRequest).user = { uid: decoded.uid, claims: decoded };
+    req.user = { uid: decoded.uid, claims: decoded };
     return next();
-  } catch (error: any) {
-    winston.error('Auth error:', error.message);
-    return res.status(401).json({ error: 'Invalid auth token' });
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : 'Unknown auth error';
+    winston.error('Auth error:', message);
+    return res.status(ERROR_STATUS.UNAUTHORIZED).json({ error: 'Invalid auth token' });
   }
 };
