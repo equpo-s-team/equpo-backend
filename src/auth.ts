@@ -29,6 +29,8 @@ export const requireUser: RequestHandler = async (
     const message =
       error instanceof Error ? error.message : 'Unknown auth error';
     winston.error('Auth error:', message);
-    return res.status(ERROR_STATUS.UNAUTHORIZED).json({ error: 'Invalid auth token' });
+    return res
+      .status(ERROR_STATUS.UNAUTHORIZED)
+      .json({ error: 'Invalid auth token' });
   }
 };

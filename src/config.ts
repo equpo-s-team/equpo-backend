@@ -10,6 +10,20 @@ function required(name: string): string {
   return value;
 }
 
+function positiveNumber(name: string, fallback: number): number {
+  const rawValue = process.env[name];
+  if (!rawValue) {
+    return fallback;
+  }
+
+  const value = Number(rawValue);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`Invalid numeric env var: ${name}`);
+  }
+
+  return value;
+}
+
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
   .split(',')
   .map(item => item.trim())
@@ -21,4 +35,10 @@ export const config = {
   allowedOrigins,
   databaseUrl: required('DATABASE_URL'),
   systemApiKey: required('SYSTEM_API_KEY'),
+  rateLimit: {
+    windowMs: positiveNumber('RATE_LIMIT_WINDOW_MS', 60_000),
+    maxRequests: positiveNumber('RATE_LIMIT_MAX_REQUESTS', 120),
+    blockMs: positiveNumber('RATE_LIMIT_BLOCK_MS', 60_000),
+    maxBlockMs: positiveNumber('RATE_LIMIT_MAX_BLOCK_MS', 900_000),
+  },
 };
