@@ -1,0 +1,19 @@
+import { z } from 'zod';
+
+const prioritySchema = z.enum(['high', 'medium', 'low']);
+const taskStatusSchema = z.enum(['todo', 'in-progress', 'in-qa', 'done']);
+const recurringIntervalSchema = z.enum(['days', 'weeks', 'months']);
+const categoriesSchema = z.array(z.string().min(1).max(12)).max(50);
+
+export const updateTaskSchema = z.object({
+  dueDate: z.string().datetime().optional(),
+  priority: prioritySchema.optional(),
+  status: taskStatusSchema.optional(),
+  categories: categoriesSchema.optional(),
+  isRecurring: z.boolean().optional(),
+  recurringInterval: recurringIntervalSchema.nullable().optional(),
+  assignedUserUid: z.string().min(1).nullable().optional(),
+  assignedGroupId: z.string().uuid().nullable().optional(),
+});
+
+export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;

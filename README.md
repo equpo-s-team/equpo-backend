@@ -49,6 +49,10 @@ Opcionales habituales:
 - `PORT` (default `8080`)
 - `API_PREFIX` (default `/api/v1`)
 - `ALLOWED_ORIGINS` (csv, default `http://localhost:5173`)
+- `RATE_LIMIT_WINDOW_MS` (default `60000`)
+- `RATE_LIMIT_MAX_REQUESTS` (default `120`)
+- `RATE_LIMIT_BLOCK_MS` (default `60000`)
+- `RATE_LIMIT_MAX_BLOCK_MS` (default `900000`)
 
 ## Comandos de desarrollo y ejecucion
 
