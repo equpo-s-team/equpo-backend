@@ -1,11 +1,7 @@
 import { NextFunction, RequestHandler, Request, Response } from 'express';
 import winston from 'winston';
-import admin from 'firebase-admin';
 import { ERROR_STATUS } from '#a/constants/httpStatusCodes.js';
-
-if (!admin.apps.length) {
-  admin.initializeApp();
-}
+import { getFirebaseAuth } from '#a/firebaseAdmin.js';
 
 export const requireUser: RequestHandler = async (
   req: Request,
@@ -22,7 +18,7 @@ export const requireUser: RequestHandler = async (
         .json({ error: 'Missing or invalid Authorization header' });
     }
 
-    const decoded = await admin.auth().verifyIdToken(token);
+    const decoded = await getFirebaseAuth().verifyIdToken(token);
     req.user = { uid: decoded.uid, claims: decoded };
     return next();
   } catch (error: unknown) {

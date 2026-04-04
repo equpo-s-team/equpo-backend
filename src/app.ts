@@ -30,6 +30,10 @@ import {
   updateTaskSchema,
 } from '#a/domains/task/schemas/index.js';
 import {
+  deleteTaskFromFirestore,
+  upsertTaskInFirestore,
+} from '#a/domains/task/firestore/index.js';
+import {
   createTeamRewardSchema,
   createTeamSchema,
   inviteTeamMemberSchema,
@@ -548,6 +552,7 @@ api.post('/teams/:teamId/tasks', requireUser, userRateLimit, async (req, res, ne
                    recurring_interval AS "recurringInterval",
                    assigned_user_uid AS "assignedUserUid",
                    assigned_group_id AS "assignedGroupId",
+                   created_at AS "createdAt",
                    updated_at AS "updatedAt"`,
         [
           parsedTeamId,
@@ -577,6 +582,23 @@ api.post('/teams/:teamId/tasks', requireUser, userRateLimit, async (req, res, ne
         ...createdTask,
         categories: normalizedCategories,
       };
+    });
+
+    await upsertTaskInFirestore({
+      taskId: task.id as string,
+      teamId: task.teamId as string,
+      name: input.name,
+      description: input.description ?? null,
+      dueDate: task.dueDate as string | Date,
+      priority: task.priority as string,
+      createdAt: task.createdAt as string | Date,
+      updatedAt: task.updatedAt as string | Date,
+      category: task.categories as string[],
+      status: task.status as string,
+      isRecurring: Boolean(task.isRecurring),
+      recurringInterval: (task.recurringInterval as string | null) ?? null,
+      assignedUserId: (task.assignedUserUid as string | null) ?? null,
+      assignedGroup: (task.assignedGroupId as string | null) ?? null,
     });
 
     logEndpointAudit({
@@ -633,7 +655,10 @@ api.patch(
         );
 
         const taskResult = await client.query(
-          `SELECT id FROM public.task WHERE id = $1 AND team_id = $2 LIMIT 1`,
+          `SELECT id, created_at AS "createdAt"
+           FROM public.task
+           WHERE id = $1 AND team_id = $2
+           LIMIT 1`,
           [parsedTaskId, parsedTeamId]
         );
 
@@ -699,6 +724,7 @@ api.patch(
                    recurring_interval AS "recurringInterval",
                    assigned_user_uid AS "assignedUserUid",
                    assigned_group_id AS "assignedGroupId",
+                   created_at AS "createdAt",
                    updated_at AS "updatedAt"`,
           values
         );
@@ -726,6 +752,23 @@ api.patch(
           ...result.rows[0],
           categories: categoryResult.rows.map(row => row.name as string),
         };
+      });
+
+      await upsertTaskInFirestore({
+        taskId: task.id as string,
+        teamId: task.teamId as string,
+        name: input.name,
+        description: input.description,
+        dueDate: task.dueDate as string | Date,
+        priority: task.priority as string,
+        createdAt: task.createdAt as string | Date,
+        updatedAt: task.updatedAt as string | Date,
+        category: task.categories as string[],
+        status: task.status as string,
+        isRecurring: Boolean(task.isRecurring),
+        recurringInterval: (task.recurringInterval as string | null) ?? null,
+        assignedUserId: (task.assignedUserUid as string | null) ?? null,
+        assignedGroup: (task.assignedGroupId as string | null) ?? null,
       });
 
       logEndpointAudit({
@@ -933,6 +976,8 @@ api.delete(
 
         return parsedTaskId;
       });
+
+      await deleteTaskFromFirestore(parsedTeamId, deletedTaskId);
 
       logEndpointAudit({
         operation: 'tasks.delete',
