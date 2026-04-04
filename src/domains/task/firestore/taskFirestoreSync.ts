@@ -8,7 +8,9 @@ function taskDocumentRef(teamId: string, taskId: string) {
 
 export async function upsertTaskInFirestore(input: TaskFirestoreSyncInput) {
   const payload = buildTaskFirestoreDocument(input);
-  await taskDocumentRef(input.teamId, input.taskId).set(payload, { merge: true });
+  await taskDocumentRef(input.teamId, input.taskId).set(payload, {
+    merge: true,
+  });
 }
 
 export async function deleteTaskFromFirestore(teamId: string, taskId: string) {

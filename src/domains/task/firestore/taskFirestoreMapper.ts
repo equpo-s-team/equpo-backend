@@ -51,7 +51,3 @@ export function buildTaskFirestoreDocument(input: TaskFirestoreSyncInput) {
 
   return payload;
 }
-
-
-
-

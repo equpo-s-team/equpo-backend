@@ -74,5 +74,3 @@ export function getFirebaseAuth() {
 export function getFirestoreDb() {
   return admin.firestore();
 }
-
-

@@ -2,47 +2,44 @@ import { TEAM_ALLOWED_ROLES } from '../schemas/constants.js';
 import { ERROR_STATUS } from '#a/constants/httpStatusCodes.js';
 import { EqupoError } from '#a/types/EqupoError.js';
 import { PoolClient } from 'pg';
+import {
+  assertTeamMembership,
+  type TeamMembershipResult,
+} from './assertTeamMembership.js';
 
+/**
+ * Verifies a team exists, the actor belongs to it, AND the actor's role
+ * is in TEAM_ALLOWED_ROLES (leader or collaborator).
+ *
+ * Use this for endpoints that require an active/contributing role
+ * (e.g. create/edit/delete tasks, manage board).
+ *
+ * For read-only endpoints accessible to ALL members, use `assertTeamMembership`.
+ * For leader-only endpoints, use `assertTeamLeaderPermission`.
+ */
 export async function assertTeamPermission(
   client: PoolClient,
   teamId: string,
   actorUid: string
-) {
-  const teamResult = await client.query(
-    'SELECT id, leader_uid FROM public.team WHERE id = $1 LIMIT 1',
-    [teamId]
-  );
+): Promise<TeamMembershipResult> {
+  const membership = await assertTeamMembership(client, teamId, actorUid);
 
-  if (!teamResult.rowCount) {
-    const error = new EqupoError('Team not found');
-    error.status = ERROR_STATUS.NOT_FOUND;
-    throw error;
+  // Leaders are always allowed
+  if (membership.isLeader) {
+    return membership;
   }
 
-  const team = teamResult.rows[0];
-  if (team.leader_uid === actorUid) {
-    return { isLeader: true, role: 'leader', teamId: team.id };
-  }
-
-  const membershipResult = await client.query(
-    'SELECT role FROM public.team_membership WHERE team_id = $1 AND user_uid = $2 LIMIT 1',
-    [teamId, actorUid]
-  );
-
-  if (!membershipResult.rowCount) {
-    const error = new EqupoError('Forbidden: not a team member');
-    error.status = ERROR_STATUS.FORBIDDEN;
-    throw error;
-  }
-
-  const role = String(membershipResult.rows[0].role || '').toLowerCase() as
-    | 'leader'
-    | 'collaborator';
-  if (!TEAM_ALLOWED_ROLES.has(role)) {
+  if (
+    !TEAM_ALLOWED_ROLES.has(
+      membership.role as typeof TEAM_ALLOWED_ROLES extends Set<infer T>
+        ? T
+        : never
+    )
+  ) {
     const error = new EqupoError('Forbidden: insufficient role');
     error.status = ERROR_STATUS.FORBIDDEN;
     throw error;
   }
 
-  return { isLeader: false, role, teamId: team.id };
+  return membership;
 }
