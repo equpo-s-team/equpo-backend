@@ -18,7 +18,10 @@ import {
   assertUserBelongsToTeam,
 } from '#a/domains/team/guards/index.js';
 import { assertGroupBelongsToTeam } from '#a/domains/task/guards/index.js';
-import { createAchievementSchema } from '#a/domains/achievement/schemas/index.js';
+import {
+  createAchievementSchema,
+  unlockAchievementSchema,
+} from '#a/domains/achievement/schemas/index.js';
 import { createSystemUserRewardSchema } from '#a/domains/reward/schemas/index.js';
 import {
   createTaskSchema,
@@ -416,19 +419,12 @@ api.post('/teams/:teamId/achievements', requireUser, userRateLimit, async (req, 
 
     const achievement = await withTransaction(async client => {
       await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
-      await assertUserBelongsToTeam(client, parsedTeamId, input.userUid);
 
       const result = await client.query(
-        `INSERT INTO public.achievement (user_uid, name, description, icon_url, unlocked_at, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, COALESCE($5::timestamptz, NOW()), NOW(), NOW())
-         RETURNING id, user_uid, name, unlocked_at`,
-        [
-          input.userUid,
-          input.name,
-          input.description ?? null,
-          input.iconURL ?? null,
-          input.unlockedAt ?? null,
-        ]
+        `INSERT INTO public.achievement (name, description, icon_url, created_at, updated_at)
+         VALUES ($1, $2, $3, NOW(), NOW())
+         RETURNING id, name, description, icon_url, created_at, updated_at`,
+        [input.name, input.description ?? null, input.iconURL ?? null]
       );
 
       return result.rows[0];
@@ -439,7 +435,6 @@ api.post('/teams/:teamId/achievements', requireUser, userRateLimit, async (req, 
       outcome: 'success',
       actorUid: authenticatedActorUid,
       teamId: parsedTeamId,
-      targetUserUid: input.userUid,
     });
 
     return res.status(201).json({ achievement });
@@ -454,6 +449,68 @@ api.post('/teams/:teamId/achievements', requireUser, userRateLimit, async (req, 
     return next(error);
   }
 });
+
+api.post(
+  '/teams/:teamId/achievements/unlocks',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    try {
+      ({ teamId } = teamIdParam.parse(req.params));
+      const parsedTeamId = teamId;
+      const input = assertBody(unlockAchievementSchema, req.body);
+      const authenticatedActorUid = getActorUid(req);
+
+      const userAchievement = await withTransaction(async client => {
+        await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
+        await assertUserBelongsToTeam(client, parsedTeamId, input.userUid);
+
+        const achievementResult = await client.query(
+          `SELECT id FROM public.achievement WHERE id = $1 LIMIT 1`,
+          [input.achievementId]
+        );
+
+        if (!achievementResult.rowCount) {
+          const error = new EqupoError('Achievement not found');
+          error.status = ERROR_STATUS.NOT_FOUND;
+          throw error;
+        }
+
+        const result = await client.query(
+          `INSERT INTO public.user_achievement (user_uid, achievement_id, unlocked_at)
+           VALUES ($1, $2, COALESCE($3::timestamptz, NOW()))
+           ON CONFLICT (user_uid, achievement_id)
+           DO UPDATE SET unlocked_at = EXCLUDED.unlocked_at
+           RETURNING user_uid, achievement_id, unlocked_at`,
+          [input.userUid, input.achievementId, input.unlockedAt ?? null]
+        );
+
+        return result.rows[0];
+      });
+
+      logEndpointAudit({
+        operation: 'teams.achievements.unlock',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+        targetUserUid: input.userUid,
+      });
+
+      return res.status(201).json({ userAchievement });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'teams.achievements.unlock',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
 
 api.post('/teams/:teamId/tasks', requireUser, userRateLimit, async (req, res, next) => {
   const actorUid = req.user?.uid ?? null;

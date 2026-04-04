@@ -6,6 +6,8 @@ const recurringIntervalSchema = z.enum(['days', 'weeks', 'months']);
 const categoriesSchema = z.array(z.string().min(1).max(12)).max(50);
 
 export const createTaskSchema = z.object({
+  name: z.string().min(1).max(120),
+  description: z.string().max(2000).nullable(),
   dueDate: z.string().datetime(),
   priority: prioritySchema,
   status: taskStatusSchema,
