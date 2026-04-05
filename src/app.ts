@@ -9,7 +9,7 @@ import express, {
 } from 'express';
 import { requireUser } from '#a/auth.js';
 import { requireSystem } from '#a/systemAuth.js';
-import { withTransaction } from '#a/db.js';
+import { pool, withTransaction } from '#a/db.js';
 import { config } from '#a/config.js';
 import { assertBody, createUserRateLimitMiddleware } from '#a/utils/index.js';
 import {
@@ -34,6 +34,7 @@ import {
   deleteTaskFromFirestore,
   upsertTaskInFirestore,
 } from '#a/domains/task/firestore/index.js';
+import { upsertTeamMembershipInFirestore } from '#a/domains/team/firestore/teamMembershipFirestore.js';
 import {
   createTeamRewardSchema,
   createTeamSchema,
@@ -141,6 +142,48 @@ api.get('/health', (_req, res) => {
   res.json({ ok: true, prefix: config.apiPrefix });
 });
 
+api.get('/teams/me', requireUser, async (req, res, next) => {
+  try {
+    const actorUid = getActorUid(req);
+
+    const result = await pool.query(
+      `SELECT
+         t.id,
+         t.name,
+         t.leader_uid       AS "leaderUid",
+         t.virtual_currency AS "virtualCurrency",
+         t.description,
+         t.created_at       AS "createdAt",
+         t.updated_at       AS "updatedAt",
+         COALESCE(
+           json_agg(
+             json_build_object(
+               'userUid',     tm.user_uid,
+               'role',        tm.role,
+               'joinedAt',    tm.joined_at,
+               'displayName', u.display_name
+             )
+           ) FILTER (WHERE tm.user_uid IS NOT NULL),
+           '[]'
+         ) AS members
+       FROM public.team t
+       INNER JOIN public.team_membership me
+         ON me.team_id = t.id AND me.user_uid = $1
+       LEFT JOIN public.team_membership tm
+         ON tm.team_id = t.id
+       LEFT JOIN public."user" u
+         ON u.uid = tm.user_uid
+       GROUP BY t.id
+       ORDER BY t.created_at DESC`,
+      [actorUid]
+    );
+
+    return res.json({ teams: result.rows });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 api.post('/teams', requireUser, userRateLimit, async (req, res, next) => {
   const actorUid = req.user?.uid ?? null;
   try {
@@ -168,6 +211,12 @@ api.post('/teams', requireUser, userRateLimit, async (req, res, next) => {
 
       return teamResult.rows[0];
     });
+
+    await upsertTeamMembershipInFirestore(
+      team.id as string,
+      authenticatedActorUid,
+      'leader'
+    );
 
     logEndpointAudit({
       operation: 'teams.create',
@@ -295,6 +344,12 @@ api.post(
         return result.rows[0];
       });
 
+      await upsertTeamMembershipInFirestore(
+        membership.team_id,
+        membership.user_uid,
+        membership.role
+      );
+
       logEndpointAudit({
         operation: 'teams.members.add',
         outcome: 'success',
@@ -355,6 +410,12 @@ api.patch(
 
         return result.rows[0];
       });
+
+      await upsertTeamMembershipInFirestore(
+        membership.team_id,
+        membership.user_uid,
+        membership.role
+      );
 
       logEndpointAudit({
         operation: 'teams.members.role.update',
