@@ -21,6 +21,7 @@ export type TaskFirestoreSyncInput = {
   status: string;
   isRecurring: boolean;
   recurringInterval: string | null;
+  recurringCount: number | null;
   assignedUserId: string | null;
   assignedGroup: string | null;
 };
@@ -38,6 +39,7 @@ export function buildTaskFirestoreDocument(input: TaskFirestoreSyncInput) {
     status: input.status,
     isRecurring: input.isRecurring,
     recurringInterval: input.recurringInterval,
+    recurringCount: input.recurringCount,
     assignedUserId: input.assignedUserId,
     assignedGroup: input.assignedGroup,
   };

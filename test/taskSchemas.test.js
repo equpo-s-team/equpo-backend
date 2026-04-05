@@ -82,7 +82,7 @@ test('updateTaskSchema rejects invalid recurring interval', () => {
     assertBody(updateTaskSchema, {
       name: 'Refine UX copy',
       description: 'Still in progress',
-      recurringInterval: 'years',
+      recurringInterval: 'centuries',
     });
   });
 });

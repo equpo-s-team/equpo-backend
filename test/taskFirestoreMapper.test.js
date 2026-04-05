@@ -16,6 +16,7 @@ test('buildTaskFirestoreDocument maps backend task shape to Firestore payload', 
     status: 'todo',
     isRecurring: false,
     recurringInterval: null,
+    recurringCount: null,
     assignedUserId: 'uid_123',
     assignedGroup: null,
   });
@@ -46,6 +47,7 @@ test('buildTaskFirestoreDocument throws on invalid date input', () => {
       status: 'todo',
       isRecurring: false,
       recurringInterval: null,
+      recurringCount: null,
       assignedUserId: null,
       assignedGroup: null,
     });
@@ -64,6 +66,7 @@ test('buildTaskFirestoreDocument omits name and description when not provided', 
     status: 'in-progress',
     isRecurring: false,
     recurringInterval: null,
+    recurringCount: null,
     assignedUserId: null,
     assignedGroup: null,
   });

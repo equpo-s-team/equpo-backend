@@ -14,6 +14,7 @@ import { config } from '#a/config.js';
 import { assertBody, createUserRateLimitMiddleware } from '#a/utils/index.js';
 import {
   assertTeamLeaderPermission,
+  assertTeamMembership,
   assertTeamPermission,
   assertUserBelongsToTeam,
 } from '#a/domains/team/guards/index.js';
@@ -565,8 +566,8 @@ api.post(
 
         const result = await client.query(
           `INSERT INTO public.task
-           (team_id, due_date, priority, status, is_recurring, recurring_interval, assigned_user_uid, assigned_group_id, created_at, updated_at)
-         VALUES ($1, $2::timestamptz, $3, $4, COALESCE($5, false), $6, $7, $8, NOW(), NOW())
+           (team_id, due_date, priority, status, is_recurring, recurring_interval, recurring_count, assigned_user_uid, assigned_group_id, created_at, updated_at)
+         VALUES ($1, $2::timestamptz, $3, $4, COALESCE($5, false), $6, $7, $8, $9, NOW(), NOW())
          RETURNING id,
                    team_id AS "teamId",
                    due_date AS "dueDate",
@@ -574,6 +575,7 @@ api.post(
                    status,
                    is_recurring AS "isRecurring",
                    recurring_interval AS "recurringInterval",
+                   recurring_count AS "recurringCount",
                    assigned_user_uid AS "assignedUserUid",
                    assigned_group_id AS "assignedGroupId",
                    created_at AS "createdAt",
@@ -585,6 +587,7 @@ api.post(
             input.status,
             input.isRecurring ?? false,
             input.recurringInterval ?? null,
+            input.recurringCount ?? null,
             input.assignedUserUid ?? null,
             input.assignedGroupId ?? null,
           ]
@@ -621,6 +624,7 @@ api.post(
         status: task.status as string,
         isRecurring: Boolean(task.isRecurring),
         recurringInterval: (task.recurringInterval as string | null) ?? null,
+        recurringCount: (task.recurringCount as number | null) ?? null,
         assignedUserId: (task.assignedUserUid as string | null) ?? null,
         assignedGroup: (task.assignedGroupId as string | null) ?? null,
       });
@@ -701,7 +705,7 @@ api.patch(
         );
 
         const updates: string[] = [];
-        const values: Array<string | boolean | null> = [];
+        const values: Array<string | number | boolean | null> = [];
         let index = 1;
 
         if (input.dueDate !== undefined) {
@@ -723,6 +727,10 @@ api.patch(
         if (input.recurringInterval !== undefined) {
           updates.push(`recurring_interval = $${index++}`);
           values.push(input.recurringInterval);
+        }
+        if (input.recurringCount !== undefined) {
+          updates.push(`recurring_count = $${index++}`);
+          values.push(input.recurringCount);
         }
         if (input.assignedUserUid !== undefined) {
           updates.push(`assigned_user_uid = $${index++}`);
@@ -747,6 +755,7 @@ api.patch(
                    status,
                    is_recurring AS "isRecurring",
                    recurring_interval AS "recurringInterval",
+                   recurring_count AS "recurringCount",
                    assigned_user_uid AS "assignedUserUid",
                    assigned_group_id AS "assignedGroupId",
                    created_at AS "createdAt",
@@ -793,6 +802,7 @@ api.patch(
         status: task.status as string,
         isRecurring: Boolean(task.isRecurring),
         recurringInterval: (task.recurringInterval as string | null) ?? null,
+        recurringCount: (task.recurringCount as number | null) ?? null,
         assignedUserId: (task.assignedUserUid as string | null) ?? null,
         assignedGroup: (task.assignedGroupId as string | null) ?? null,
       });
@@ -813,6 +823,103 @@ api.patch(
         actorUid,
         teamId,
         taskId,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
+
+api.get(
+  '/teams/:teamId/members',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    try {
+      ({ teamId } = teamIdParam.parse(req.params));
+      const parsedTeamId = teamId;
+      const authenticatedActorUid = getActorUid(req);
+
+      const members = await withTransaction(async client => {
+        await assertTeamMembership(client, parsedTeamId, authenticatedActorUid);
+
+        const result = await client.query(
+          `SELECT tm.user_uid AS "uid",
+                  u.display_name AS "displayName",
+                  tm.role
+           FROM public.team_membership tm
+           JOIN public."user" u ON u.uid = tm.user_uid
+           WHERE tm.team_id = $1
+           ORDER BY u.display_name ASC`,
+          [parsedTeamId]
+        );
+
+        return result.rows;
+      });
+
+      logEndpointAudit({
+        operation: 'teams.members.list',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+      });
+
+      return res.json({ members });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'teams.members.list',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
+
+api.get(
+  '/teams/:teamId/groups',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    try {
+      ({ teamId } = teamIdParam.parse(req.params));
+      const parsedTeamId = teamId;
+      const authenticatedActorUid = getActorUid(req);
+
+      const groups = await withTransaction(async client => {
+        await assertTeamMembership(client, parsedTeamId, authenticatedActorUid);
+
+        const result = await client.query(
+          `SELECT id, group_name AS "groupName"
+           FROM public."group"
+           WHERE team_id = $1
+           ORDER BY group_name ASC`,
+          [parsedTeamId]
+        );
+
+        return result.rows;
+      });
+
+      logEndpointAudit({
+        operation: 'teams.groups.list',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+      });
+
+      return res.json({ groups });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'teams.groups.list',
+        outcome: 'error',
+        actorUid,
+        teamId,
         error,
       });
       return next(error);
@@ -852,6 +959,7 @@ api.get(
                   t.status,
                   t.is_recurring,
                   t.recurring_interval,
+                  t.recurring_count,
                   t.assigned_user_uid,
                   t.assigned_group_id,
                   t.updated_at
@@ -893,6 +1001,7 @@ api.get(
                 pt.status,
                 COALESCE(pt.is_recurring, false) AS "isRecurring",
                 pt.recurring_interval AS "recurringInterval",
+                pt.recurring_count AS "recurringCount",
                 pt.assigned_group_id AS "assignedGroupId",
                 pt.updated_at AS "updatedAt",
                 COALESCE(ca.categories, '{}') AS categories,
