@@ -141,25 +141,30 @@ api.get('/health', (_req, res) => {
   res.json({ ok: true, prefix: config.apiPrefix });
 });
 
-api.get('/users/:userUid', requireUser, userRateLimit, async (req, res, next) => {
-  try {
-    const { userUid } = req.params;
-    const result = await pool.query(
-      `SELECT uid, display_name AS "displayName", photo_url AS "photoURL" FROM public."user" WHERE uid = $1 LIMIT 1`,
-      [userUid]
-    );
+api.get(
+  '/users/:userUid',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    try {
+      const { userUid } = req.params;
+      const result = await pool.query(
+        `SELECT uid, display_name AS "displayName", photo_url AS "photoURL" FROM public."user" WHERE uid = $1 LIMIT 1`,
+        [userUid]
+      );
 
-    if (!result.rowCount) {
-      const error = new EqupoError('User not found');
-      error.status = ERROR_STATUS.NOT_FOUND;
-      throw error;
+      if (!result.rowCount) {
+        const error = new EqupoError('User not found');
+        error.status = ERROR_STATUS.NOT_FOUND;
+        throw error;
+      }
+
+      return res.json({ user: result.rows[0] });
+    } catch (error) {
+      return next(error);
     }
-
-    return res.json({ user: result.rows[0] });
-  } catch (error) {
-    return next(error);
   }
-});
+);
 
 api.get('/teams/me', requireUser, async (req, res, next) => {
   try {
@@ -699,18 +704,19 @@ api.post(
         taskId: task.id as string,
       });
 
-    return res.status(SUCCESS_STATUS.CREATED).json({ task });
-  } catch (error) {
-    logEndpointAudit({
-      operation: 'tasks.create',
-      outcome: 'error',
-      actorUid,
-      teamId,
-      error,
-    });
-    return next(error);
+      return res.status(SUCCESS_STATUS.CREATED).json({ task });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'tasks.create',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        error,
+      });
+      return next(error);
+    }
   }
-});
+);
 
 api.patch(
   '/teams/:teamId/tasks/:taskId',
