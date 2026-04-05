@@ -627,8 +627,8 @@ api.post(
 
         const result = await client.query(
           `INSERT INTO public.task
-           (team_id, due_date, priority, status, is_recurring, recurring_interval, recurring_count, assigned_user_uid, assigned_group_id, created_at, updated_at)
-         VALUES ($1, $2::timestamptz, $3, $4, COALESCE($5, false), $6, $7, $8, $9, NOW(), NOW())
+           (team_id, due_date, priority, status, is_recurring, recurring_interval, recurring_count, assigned_user_uid, assigned_group_id)
+         VALUES ($1, $2::timestamptz, $3, $4, COALESCE($5, false), $6, $7, $8, $9)
          RETURNING id,
                    team_id AS "teamId",
                    due_date AS "dueDate",
@@ -638,9 +638,7 @@ api.post(
                    recurring_interval AS "recurringInterval",
                    recurring_count AS "recurringCount",
                    assigned_user_uid AS "assignedUserUid",
-                   assigned_group_id AS "assignedGroupId",
-                   created_at AS "createdAt",
-                   updated_at AS "updatedAt"`,
+                   assigned_group_id AS "assignedGroupId"`,
           [
             parsedTeamId,
             input.dueDate,
@@ -679,8 +677,8 @@ api.post(
         description: input.description ?? null,
         dueDate: task.dueDate as string | Date,
         priority: task.priority as string,
-        createdAt: task.createdAt as string | Date,
-        updatedAt: task.updatedAt as string | Date,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
         category: task.categories as string[],
         status: task.status as string,
         isRecurring: Boolean(task.isRecurring),
@@ -745,7 +743,7 @@ api.patch(
         );
 
         const taskResult = await client.query(
-          `SELECT id, created_at AS "createdAt"
+          `SELECT id
            FROM public.task
            WHERE id = $1 AND team_id = $2
            LIMIT 1`,
@@ -802,7 +800,6 @@ api.patch(
           values.push(input.assignedGroupId);
         }
 
-        updates.push('updated_at = NOW()');
         values.push(parsedTaskId, parsedTeamId);
 
         const result = await client.query(
@@ -818,9 +815,7 @@ api.patch(
                    recurring_interval AS "recurringInterval",
                    recurring_count AS "recurringCount",
                    assigned_user_uid AS "assignedUserUid",
-                   assigned_group_id AS "assignedGroupId",
-                   created_at AS "createdAt",
-                   updated_at AS "updatedAt"`,
+                   assigned_group_id AS "assignedGroupId"`,
           values
         );
 
@@ -857,8 +852,8 @@ api.patch(
         description: input.description,
         dueDate: task.dueDate as string | Date,
         priority: task.priority as string,
-        createdAt: task.createdAt as string | Date,
-        updatedAt: task.updatedAt as string | Date,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
         category: task.categories as string[],
         status: task.status as string,
         isRecurring: Boolean(task.isRecurring),
@@ -1014,7 +1009,7 @@ api.get(
         const result = await client.query(
           `WITH paged_tasks AS (
            SELECT t.id,
-                  t.team_id,
+                  t.team_id AS team_id,
                   t.due_date,
                   t.priority,
                   t.status,
@@ -1022,8 +1017,7 @@ api.get(
                   t.recurring_interval,
                   t.recurring_count,
                   t.assigned_user_uid,
-                  t.assigned_group_id,
-                  t.updated_at
+                  t.assigned_group_id
            FROM public.task t
            WHERE t.team_id = $1
            ORDER BY t.due_date ASC, t.id ASC
@@ -1064,7 +1058,6 @@ api.get(
                 pt.recurring_interval AS "recurringInterval",
                 pt.recurring_count AS "recurringCount",
                 pt.assigned_group_id AS "assignedGroupId",
-                pt.updated_at AS "updatedAt",
                 COALESCE(ca.categories, '{}') AS categories,
                 COALESCE(aa.assigned_users, '[]'::jsonb) AS "assignedUsers"
          FROM paged_tasks pt
