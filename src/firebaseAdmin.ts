@@ -38,13 +38,13 @@ function resolveActiveProjectId(): string | null {
 }
 
 if (!admin.apps.length) {
-  const envProjectId = resolveActiveProjectId();
+  const envProjectId = resolveActiveProjectId() || DEFAULT_EXPECTED_PROJECT_ID;
   const expectedProjectId =
     normalize(process.env.FIREBASE_PROJECT_ID_EXPECTED) ||
     DEFAULT_EXPECTED_PROJECT_ID;
 
   admin.initializeApp({
-    projectId: envProjectId ?? undefined,
+    projectId: envProjectId,
   });
 
   const activeProjectId =
