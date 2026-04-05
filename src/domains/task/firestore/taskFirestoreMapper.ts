@@ -21,7 +21,7 @@ export type TaskFirestoreSyncInput = {
   status: string;
   isRecurring: boolean;
   recurringInterval: string | null;
-  recurringCount: number | null;
+  recurringCount?: number | null;
   assignedUserId: string | null;
   assignedGroup: string | null;
 };
@@ -39,10 +39,14 @@ export function buildTaskFirestoreDocument(input: TaskFirestoreSyncInput) {
     status: input.status,
     isRecurring: input.isRecurring,
     recurringInterval: input.recurringInterval,
-    recurringCount: input.recurringCount,
     assignedUserId: input.assignedUserId,
     assignedGroup: input.assignedGroup,
   };
+
+  // Firestore rejects undefined values. Only include recurringCount when provided.
+  if (input.recurringCount !== undefined) {
+    payload.recurringCount = input.recurringCount;
+  }
 
   if (input.name !== undefined) {
     payload.name = input.name;
