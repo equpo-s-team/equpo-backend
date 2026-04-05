@@ -9,7 +9,7 @@ import express, {
 } from 'express';
 import { requireUser } from '#a/auth.js';
 import { requireSystem } from '#a/systemAuth.js';
-import { withTransaction } from '#a/db.js';
+import { pool, withTransaction } from '#a/db.js';
 import { config } from '#a/config.js';
 import { assertBody, createUserRateLimitMiddleware } from '#a/utils/index.js';
 import {
@@ -133,6 +133,45 @@ api.get('/health', (_req, res) => {
   res.json({ ok: true, prefix: config.apiPrefix });
 });
 
+api.get('/teams/me', requireUser, async (req, res, next) => {
+  try {
+    const actorUid = getActorUid(req);
+
+    const result = await pool.query(
+      `SELECT
+         t.id,
+         t.name,
+         t.leader_uid       AS "leaderUid",
+         t.virtual_currency AS "virtualCurrency",
+         t.description,
+         t.created_at       AS "createdAt",
+         t.updated_at       AS "updatedAt",
+         COALESCE(
+           json_agg(
+             json_build_object(
+               'userUid',  tm.user_uid,
+               'role',     tm.role,
+               'joinedAt', tm.joined_at
+             )
+           ) FILTER (WHERE tm.user_uid IS NOT NULL),
+           '[]'
+         ) AS members
+       FROM public.team t
+       INNER JOIN public.team_membership me
+         ON me.team_id = t.id AND me.user_uid = $1
+       LEFT JOIN public.team_membership tm
+         ON tm.team_id = t.id
+       GROUP BY t.id
+       ORDER BY t.created_at DESC`,
+      [actorUid]
+    );
+
+    return res.json({ teams: result.rows });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 api.post('/teams', requireUser, userRateLimit, async (req, res, next) => {
   const actorUid = req.user?.uid ?? null;
   try {
@@ -180,124 +219,134 @@ api.post('/teams', requireUser, userRateLimit, async (req, res, next) => {
   }
 });
 
-api.patch('/teams/:teamId', requireUser, userRateLimit, async (req, res, next) => {
-  const actorUid = req.user?.uid ?? null;
-  let teamId: string | null = null;
-  try {
-    ({ teamId } = teamIdParam.parse(req.params));
-    const parsedTeamId = teamId;
-    const input = assertBody(updateTeamSchema, req.body);
-    const authenticatedActorUid = getActorUid(req);
+api.patch(
+  '/teams/:teamId',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    try {
+      ({ teamId } = teamIdParam.parse(req.params));
+      const parsedTeamId = teamId;
+      const input = assertBody(updateTeamSchema, req.body);
+      const authenticatedActorUid = getActorUid(req);
 
-    if (!Object.keys(input).length) {
-      return res
-        .status(ERROR_STATUS.VALIDATION)
-        .json({ error: 'No fields to update' });
+      if (!Object.keys(input).length) {
+        return res
+          .status(ERROR_STATUS.VALIDATION)
+          .json({ error: 'No fields to update' });
+      }
+
+      const team = await withTransaction(async client => {
+        await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
+
+        const updates: string[] = [];
+        const values: Array<string | number | null> = [];
+        let index = 1;
+
+        if (input.name !== undefined) {
+          updates.push(`name = $${index++}`);
+          values.push(input.name);
+        }
+        if (input.description !== undefined) {
+          updates.push(`description = $${index++}`);
+          values.push(input.description);
+        }
+        if (input.virtualCurrency !== undefined) {
+          updates.push(`virtual_currency = $${index++}`);
+          values.push(input.virtualCurrency);
+        }
+
+        updates.push('updated_at = NOW()');
+        values.push(parsedTeamId);
+
+        const result = await client.query(
+          `UPDATE public.team SET ${updates.join(', ')} WHERE id = $${index} RETURNING id, name, leader_uid, virtual_currency, description, updated_at`,
+          values
+        );
+
+        return result.rows[0];
+      });
+
+      logEndpointAudit({
+        operation: 'teams.update',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+      });
+
+      return res.json({ team });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'teams.update',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        error,
+      });
+      return next(error);
     }
-
-    const team = await withTransaction(async client => {
-      await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
-
-      const updates: string[] = [];
-      const values: Array<string | number | null> = [];
-      let index = 1;
-
-      if (input.name !== undefined) {
-        updates.push(`name = $${index++}`);
-        values.push(input.name);
-      }
-      if (input.description !== undefined) {
-        updates.push(`description = $${index++}`);
-        values.push(input.description);
-      }
-      if (input.virtualCurrency !== undefined) {
-        updates.push(`virtual_currency = $${index++}`);
-        values.push(input.virtualCurrency);
-      }
-
-      updates.push('updated_at = NOW()');
-      values.push(parsedTeamId);
-
-      const result = await client.query(
-        `UPDATE public.team SET ${updates.join(', ')} WHERE id = $${index} RETURNING id, name, leader_uid, virtual_currency, description, updated_at`,
-        values
-      );
-
-      return result.rows[0];
-    });
-
-    logEndpointAudit({
-      operation: 'teams.update',
-      outcome: 'success',
-      actorUid: authenticatedActorUid,
-      teamId: parsedTeamId,
-    });
-
-    return res.json({ team });
-  } catch (error) {
-    logEndpointAudit({
-      operation: 'teams.update',
-      outcome: 'error',
-      actorUid,
-      teamId,
-      error,
-    });
-    return next(error);
   }
-});
+);
 
-api.post('/teams/:teamId/members', requireUser, userRateLimit, async (req, res, next) => {
-  const actorUid = req.user?.uid ?? null;
-  let teamId: string | null = null;
-  try {
-    ({ teamId } = teamIdParam.parse(req.params));
-    const parsedTeamId = teamId;
-    const input = assertBody(inviteTeamMemberSchema, req.body);
-    const authenticatedActorUid = getActorUid(req);
+api.post(
+  '/teams/:teamId/members',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    try {
+      ({ teamId } = teamIdParam.parse(req.params));
+      const parsedTeamId = teamId;
+      const input = assertBody(inviteTeamMemberSchema, req.body);
+      const authenticatedActorUid = getActorUid(req);
 
-    const membership = await withTransaction(async client => {
-      await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
+      const membership = await withTransaction(async client => {
+        await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
 
-      const result = await client.query(
-        `INSERT INTO public.team_membership (user_uid, team_id, role, joined_at)
+        const result = await client.query(
+          `INSERT INTO public.team_membership (user_uid, team_id, role, joined_at)
          VALUES ($1, $2, $3, NOW())
          ON CONFLICT (user_uid, team_id)
          DO NOTHING
          RETURNING user_uid, team_id, role`,
-        [input.userUid, parsedTeamId, input.role]
-      );
-
-      if (!result.rowCount) {
-        const error = new EqupoError(
-          'User is already a member of this team. Use role-change endpoint to modify role.'
+          [input.userUid, parsedTeamId, input.role]
         );
-        error.status = ERROR_STATUS.CONFLICT;
-        throw error;
-      }
 
-      return result.rows[0];
-    });
+        if (!result.rowCount) {
+          const error = new EqupoError(
+            'User is already a member of this team. Use role-change endpoint to modify role.'
+          );
+          error.status = ERROR_STATUS.CONFLICT;
+          throw error;
+        }
 
-    logEndpointAudit({
-      operation: 'teams.members.add',
-      outcome: 'success',
-      actorUid: authenticatedActorUid,
-      teamId: parsedTeamId,
-      targetUserUid: input.userUid,
-    });
+        return result.rows[0];
+      });
 
-    return res.status(SUCCESS_STATUS.CREATED).json({ membership });
-  } catch (error) {
-    logEndpointAudit({
-      operation: 'teams.members.add',
-      outcome: 'error',
-      actorUid,
-      teamId,
-      error,
-    });
-    return next(error);
+      logEndpointAudit({
+        operation: 'teams.members.add',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+        targetUserUid: input.userUid,
+      });
+
+      return res.status(SUCCESS_STATUS.CREATED).json({ membership });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'teams.members.add',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        error,
+      });
+      return next(error);
+    }
   }
-});
+);
 
 api.patch(
   '/teams/:teamId/members/:userUid/role',
@@ -361,125 +410,139 @@ api.patch(
   }
 );
 
-api.post('/teams/:teamId/rewards', requireUser, userRateLimit, async (req, res, next) => {
-  const actorUid = req.user?.uid ?? null;
-  let teamId: string | null = null;
-  try {
-    ({ teamId } = teamIdParam.parse(req.params));
-    const parsedTeamId = teamId;
-    const input = assertBody(createTeamRewardSchema, req.body);
-    const authenticatedActorUid = getActorUid(req);
+api.post(
+  '/teams/:teamId/rewards',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    try {
+      ({ teamId } = teamIdParam.parse(req.params));
+      const parsedTeamId = teamId;
+      const input = assertBody(createTeamRewardSchema, req.body);
+      const authenticatedActorUid = getActorUid(req);
 
-    const teamReward = await withTransaction(async client => {
-      await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
+      const teamReward = await withTransaction(async client => {
+        await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
 
-      const result = await client.query(
-        `INSERT INTO public.team_reward (team_id, reward_id, date_obtained, created_at, updated_at)
+        const result = await client.query(
+          `INSERT INTO public.team_reward (team_id, reward_id, date_obtained, created_at, updated_at)
          VALUES ($1, $2, COALESCE($3::timestamptz, NOW()), NOW(), NOW())
          ON CONFLICT (team_id, reward_id)
          DO UPDATE SET updated_at = NOW()
          RETURNING team_id, reward_id, date_obtained, updated_at`,
-        [parsedTeamId, input.rewardId, input.dateObtained ?? null]
-      );
+          [parsedTeamId, input.rewardId, input.dateObtained ?? null]
+        );
 
-      return result.rows[0];
-    });
+        return result.rows[0];
+      });
 
-    logEndpointAudit({
-      operation: 'teams.rewards.create',
-      outcome: 'success',
-      actorUid: authenticatedActorUid,
-      teamId: parsedTeamId,
-    });
+      logEndpointAudit({
+        operation: 'teams.rewards.create',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+      });
 
-    return res.status(SUCCESS_STATUS.CREATED).json({ teamReward });
-  } catch (error) {
-    logEndpointAudit({
-      operation: 'teams.rewards.create',
-      outcome: 'error',
-      actorUid,
-      teamId,
-      error,
-    });
-    return next(error);
+      return res.status(SUCCESS_STATUS.CREATED).json({ teamReward });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'teams.rewards.create',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        error,
+      });
+      return next(error);
+    }
   }
-});
+);
 
-api.post('/teams/:teamId/achievements', requireUser, userRateLimit, async (req, res, next) => {
-  const actorUid = req.user?.uid ?? null;
-  let teamId: string | null = null;
-  try {
-    ({ teamId } = teamIdParam.parse(req.params));
-    const parsedTeamId = teamId;
-    const input = assertBody(createAchievementSchema, req.body);
-    const authenticatedActorUid = getActorUid(req);
+api.post(
+  '/teams/:teamId/achievements',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    try {
+      ({ teamId } = teamIdParam.parse(req.params));
+      const parsedTeamId = teamId;
+      const input = assertBody(createAchievementSchema, req.body);
+      const authenticatedActorUid = getActorUid(req);
 
-    const achievement = await withTransaction(async client => {
-      await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
-      await assertUserBelongsToTeam(client, parsedTeamId, input.userUid);
+      const achievement = await withTransaction(async client => {
+        await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
+        await assertUserBelongsToTeam(client, parsedTeamId, input.userUid);
 
-      const result = await client.query(
-        `INSERT INTO public.achievement (user_uid, name, description, icon_url, unlocked_at, created_at, updated_at)
+        const result = await client.query(
+          `INSERT INTO public.achievement (user_uid, name, description, icon_url, unlocked_at, created_at, updated_at)
          VALUES ($1, $2, $3, $4, COALESCE($5::timestamptz, NOW()), NOW(), NOW())
          RETURNING id, user_uid, name, unlocked_at`,
-        [
-          input.userUid,
-          input.name,
-          input.description ?? null,
-          input.iconURL ?? null,
-          input.unlockedAt ?? null,
-        ]
-      );
+          [
+            input.userUid,
+            input.name,
+            input.description ?? null,
+            input.iconURL ?? null,
+            input.unlockedAt ?? null,
+          ]
+        );
 
-      return result.rows[0];
-    });
+        return result.rows[0];
+      });
 
-    logEndpointAudit({
-      operation: 'teams.achievements.create',
-      outcome: 'success',
-      actorUid: authenticatedActorUid,
-      teamId: parsedTeamId,
-      targetUserUid: input.userUid,
-    });
+      logEndpointAudit({
+        operation: 'teams.achievements.create',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+        targetUserUid: input.userUid,
+      });
 
-    return res.status(201).json({ achievement });
-  } catch (error) {
-    logEndpointAudit({
-      operation: 'teams.achievements.create',
-      outcome: 'error',
-      actorUid,
-      teamId,
-      error,
-    });
-    return next(error);
+      return res.status(201).json({ achievement });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'teams.achievements.create',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        error,
+      });
+      return next(error);
+    }
   }
-});
+);
 
-api.post('/teams/:teamId/tasks', requireUser, userRateLimit, async (req, res, next) => {
-  const actorUid = req.user?.uid ?? null;
-  let teamId: string | null = null;
-  try {
-    ({ teamId } = teamIdParam.parse(req.params));
-    const parsedTeamId = teamId;
-    const input = assertBody(createTaskSchema, req.body);
-    const authenticatedActorUid = getActorUid(req);
-    const normalizedCategories = normalizeCategories(input.categories);
+api.post(
+  '/teams/:teamId/tasks',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    try {
+      ({ teamId } = teamIdParam.parse(req.params));
+      const parsedTeamId = teamId;
+      const input = assertBody(createTaskSchema, req.body);
+      const authenticatedActorUid = getActorUid(req);
+      const normalizedCategories = normalizeCategories(input.categories);
 
-    const task = await withTransaction(async client => {
-      await assertUserBelongsToTeam(
-        client,
-        parsedTeamId,
-        authenticatedActorUid
-      );
-      await assertTaskAssignmentsWithinTeam(
-        client,
-        parsedTeamId,
-        input.assignedUserUid,
-        input.assignedGroupId
-      );
+      const task = await withTransaction(async client => {
+        await assertUserBelongsToTeam(
+          client,
+          parsedTeamId,
+          authenticatedActorUid
+        );
+        await assertTaskAssignmentsWithinTeam(
+          client,
+          parsedTeamId,
+          input.assignedUserUid,
+          input.assignedGroupId
+        );
 
-      const result = await client.query(
-        `INSERT INTO public.task
+        const result = await client.query(
+          `INSERT INTO public.task
            (team_id, due_date, priority, status, is_recurring, recurring_interval, assigned_user_uid, assigned_group_id, created_at, updated_at)
          VALUES ($1, $2::timestamptz, $3, $4, COALESCE($5, false), $6, $7, $8, NOW(), NOW())
          RETURNING id,
@@ -492,56 +555,57 @@ api.post('/teams/:teamId/tasks', requireUser, userRateLimit, async (req, res, ne
                    assigned_user_uid AS "assignedUserUid",
                    assigned_group_id AS "assignedGroupId",
                    updated_at AS "updatedAt"`,
-        [
-          parsedTeamId,
-          input.dueDate,
-          input.priority,
-          input.status,
-          input.isRecurring ?? false,
-          input.recurringInterval ?? null,
-          input.assignedUserUid ?? null,
-          input.assignedGroupId ?? null,
-        ]
-      );
+          [
+            parsedTeamId,
+            input.dueDate,
+            input.priority,
+            input.status,
+            input.isRecurring ?? false,
+            input.recurringInterval ?? null,
+            input.assignedUserUid ?? null,
+            input.assignedGroupId ?? null,
+          ]
+        );
 
-      const createdTask = result.rows[0];
+        const createdTask = result.rows[0];
 
-      if (normalizedCategories.length) {
-        for (const category of normalizedCategories) {
-          await client.query(
-            `INSERT INTO public.task_category (task_id, name)
+        if (normalizedCategories.length) {
+          for (const category of normalizedCategories) {
+            await client.query(
+              `INSERT INTO public.task_category (task_id, name)
              VALUES ($1, $2)`,
-            [createdTask.id, category]
-          );
+              [createdTask.id, category]
+            );
+          }
         }
-      }
 
-      return {
-        ...createdTask,
-        categories: normalizedCategories,
-      };
-    });
+        return {
+          ...createdTask,
+          categories: normalizedCategories,
+        };
+      });
 
-    logEndpointAudit({
-      operation: 'tasks.create',
-      outcome: 'success',
-      actorUid: authenticatedActorUid,
-      teamId: parsedTeamId,
-      taskId: task.id as string,
-    });
+      logEndpointAudit({
+        operation: 'tasks.create',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+        taskId: task.id as string,
+      });
 
-    return res.status(SUCCESS_STATUS.CREATED).json({ task });
-  } catch (error) {
-    logEndpointAudit({
-      operation: 'tasks.create',
-      outcome: 'error',
-      actorUid,
-      teamId,
-      error,
-    });
-    return next(error);
+      return res.status(SUCCESS_STATUS.CREATED).json({ task });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'tasks.create',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        error,
+      });
+      return next(error);
+    }
   }
-});
+);
 
 api.patch(
   '/teams/:teamId/tasks/:taskId',
@@ -647,9 +711,10 @@ api.patch(
         );
 
         if (normalizedCategories !== undefined) {
-          await client.query(`DELETE FROM public.task_category WHERE task_id = $1`, [
-            parsedTaskId,
-          ]);
+          await client.query(
+            `DELETE FROM public.task_category WHERE task_id = $1`,
+            [parsedTaskId]
+          );
 
           for (const category of normalizedCategories) {
             await client.query(
@@ -694,27 +759,31 @@ api.patch(
   }
 );
 
-api.get('/teams/:teamId/tasks', requireUser, userRateLimit, async (req, res, next) => {
-  const actorUid = req.user?.uid ?? null;
-  let teamId: string | null = null;
-  try {
-    ({ teamId } = teamIdParam.parse(req.params));
-    const parsedTeamId = teamId;
-    const authenticatedActorUid = getActorUid(req);
-    const { page, limit } = taskListPaginationQuery.parse(req.query);
-    const offset = (page - 1) * limit;
+api.get(
+  '/teams/:teamId/tasks',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    try {
+      ({ teamId } = teamIdParam.parse(req.params));
+      const parsedTeamId = teamId;
+      const authenticatedActorUid = getActorUid(req);
+      const { page, limit } = taskListPaginationQuery.parse(req.query);
+      const offset = (page - 1) * limit;
 
-    const { tasks, total } = await withTransaction(async client => {
-      await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
+      const { tasks, total } = await withTransaction(async client => {
+        await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
 
-      const totalResult = await client.query(
-        `SELECT COUNT(*)::int AS total FROM public.task WHERE team_id = $1`,
-        [parsedTeamId]
-      );
-      const total = Number(totalResult.rows[0]?.total ?? 0);
+        const totalResult = await client.query(
+          `SELECT COUNT(*)::int AS total FROM public.task WHERE team_id = $1`,
+          [parsedTeamId]
+        );
+        const total = Number(totalResult.rows[0]?.total ?? 0);
 
-      const result = await client.query(
-        `WITH paged_tasks AS (
+        const result = await client.query(
+          `WITH paged_tasks AS (
            SELECT t.id,
                   t.team_id,
                   t.due_date,
@@ -771,51 +840,52 @@ api.get('/teams/:teamId/tasks', requireUser, userRateLimit, async (req, res, nex
          LEFT JOIN category_agg ca ON ca.task_id = pt.id
          LEFT JOIN assigned_agg aa ON aa.task_id = pt.id
          ORDER BY pt.due_date ASC, pt.id ASC`,
-        [parsedTeamId, limit, offset]
-      );
+          [parsedTeamId, limit, offset]
+        );
 
-      return {
-        tasks: result.rows,
-        total,
-      };
-    });
+        return {
+          tasks: result.rows,
+          total,
+        };
+      });
 
-    const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
-    const hasNext = page < totalPages;
-    const hasPrev = page > 1 && totalPages > 0;
+      const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+      const hasNext = page < totalPages;
+      const hasPrev = page > 1 && totalPages > 0;
 
-    logEndpointAudit({
-      operation: 'tasks.list',
-      outcome: 'success',
-      actorUid: authenticatedActorUid,
-      teamId: parsedTeamId,
-    });
+      logEndpointAudit({
+        operation: 'tasks.list',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+      });
 
-    return res.json({
-      tasks,
-      meta: {
-        page,
-        limit,
-        maxLimit: 200,
-        total,
-        totalPages,
-        hasNext,
-        hasPrev,
-        nextPage: hasNext ? page + 1 : null,
-        prevPage: hasPrev ? page - 1 : null,
-      },
-    });
-  } catch (error) {
-    logEndpointAudit({
-      operation: 'tasks.list',
-      outcome: 'error',
-      actorUid,
-      teamId,
-      error,
-    });
-    return next(error);
+      return res.json({
+        tasks,
+        meta: {
+          page,
+          limit,
+          maxLimit: 200,
+          total,
+          totalPages,
+          hasNext,
+          hasPrev,
+          nextPage: hasNext ? page + 1 : null,
+          prevPage: hasPrev ? page - 1 : null,
+        },
+      });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'tasks.list',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        error,
+      });
+      return next(error);
+    }
   }
-});
+);
 
 api.delete(
   '/teams/:teamId/tasks/:taskId',
