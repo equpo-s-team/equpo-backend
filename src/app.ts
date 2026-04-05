@@ -112,7 +112,22 @@ async function assertTaskAssignmentsWithinTeam(
 
 function normalizeCategories(categories: string[] | undefined): string[] {
   if (!categories?.length) return [];
-  return [...new Set(categories)];
+
+  const seen = new Set<string>();
+  const unique: string[] = [];
+
+  for (const category of categories) {
+    const trimmed = category.trim();
+    if (!trimmed) continue;
+
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    unique.push(trimmed);
+  }
+
+  return unique;
 }
 
 export const app: Application = express();
@@ -658,7 +673,8 @@ api.post(
           for (const category of normalizedCategories) {
             await client.query(
               `INSERT INTO public.task_category (task_id, name)
-             VALUES ($1, $2)`,
+             VALUES ($1, $2)
+             ON CONFLICT DO NOTHING`,
               [createdTask.id, category]
             );
           }
@@ -828,7 +844,8 @@ api.patch(
           for (const category of normalizedCategories) {
             await client.query(
               `INSERT INTO public.task_category (task_id, name)
-               VALUES ($1, $2)`,
+               VALUES ($1, $2)
+               ON CONFLICT DO NOTHING`,
               [parsedTaskId, category]
             );
           }
