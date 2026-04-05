@@ -34,6 +34,7 @@ import {
   deleteTaskFromFirestore,
   upsertTaskInFirestore,
 } from '#a/domains/task/firestore/index.js';
+import { upsertTeamMembershipInFirestore } from '#a/domains/team/firestore/teamMembershipFirestore.js';
 import {
   createTeamRewardSchema,
   createTeamSchema,
@@ -211,6 +212,12 @@ api.post('/teams', requireUser, userRateLimit, async (req, res, next) => {
       return teamResult.rows[0];
     });
 
+    await upsertTeamMembershipInFirestore(
+      team.id as string,
+      authenticatedActorUid,
+      'leader'
+    );
+
     logEndpointAudit({
       operation: 'teams.create',
       outcome: 'success',
@@ -337,6 +344,12 @@ api.post(
         return result.rows[0];
       });
 
+      await upsertTeamMembershipInFirestore(
+        membership.team_id,
+        membership.user_uid,
+        membership.role
+      );
+
       logEndpointAudit({
         operation: 'teams.members.add',
         outcome: 'success',
@@ -397,6 +410,12 @@ api.patch(
 
         return result.rows[0];
       });
+
+      await upsertTeamMembershipInFirestore(
+        membership.team_id,
+        membership.user_uid,
+        membership.role
+      );
 
       logEndpointAudit({
         operation: 'teams.members.role.update',
