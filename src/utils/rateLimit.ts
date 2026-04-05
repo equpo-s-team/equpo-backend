@@ -67,14 +67,13 @@ export function createUserRateLimitMiddleware(
     }
 
     const existingEntry = entries.get(userKey);
-    const entry: RateLimitEntry =
-      existingEntry ?? {
-        windowStart: now,
-        requestCount: 0,
-        blockedUntil: 0,
-        violations: 0,
-        lastSeenAt: now,
-      };
+    const entry: RateLimitEntry = existingEntry ?? {
+      windowStart: now,
+      requestCount: 0,
+      blockedUntil: 0,
+      violations: 0,
+      lastSeenAt: now,
+    };
 
     entry.lastSeenAt = now;
 
@@ -126,4 +125,3 @@ export function createUserRateLimitMiddleware(
     return next();
   };
 }
-

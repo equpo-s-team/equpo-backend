@@ -10,6 +10,8 @@ import {
 
 test('createTaskSchema validates a full valid payload', () => {
   const parsed = assertBody(createTaskSchema, {
+    name: 'Prepare release',
+    description: 'Coordinate checklist with QA',
     dueDate: '2026-05-01T10:00:00.000Z',
     priority: 'high',
     status: 'todo',
@@ -22,6 +24,8 @@ test('createTaskSchema validates a full valid payload', () => {
 
   assert.equal(parsed.priority, 'high');
   assert.equal(parsed.status, 'todo');
+  assert.equal(parsed.name, 'Prepare release');
+  assert.equal(parsed.description, 'Coordinate checklist with QA');
   assert.equal(parsed.recurringInterval, 'weeks');
   assert.deepEqual(parsed.categories, ['backend', 'api']);
 });
@@ -59,11 +63,15 @@ test('createTaskSchema rejects any category longer than 12 chars', () => {
 
 test('updateTaskSchema allows categories array and nullable recurringInterval', () => {
   const parsed = assertBody(updateTaskSchema, {
+    name: 'Refine UX copy',
+    description: null,
     categories: ['ux', 'qa'],
     recurringInterval: null,
     status: 'done',
   });
 
+  assert.equal(parsed.name, 'Refine UX copy');
+  assert.equal(parsed.description, null);
   assert.deepEqual(parsed.categories, ['ux', 'qa']);
   assert.equal(parsed.recurringInterval, null);
   assert.equal(parsed.status, 'done');
@@ -72,7 +80,9 @@ test('updateTaskSchema allows categories array and nullable recurringInterval', 
 test('updateTaskSchema rejects invalid recurring interval', () => {
   assert.throws(() => {
     assertBody(updateTaskSchema, {
-      recurringInterval: 'years',
+      name: 'Refine UX copy',
+      description: 'Still in progress',
+      recurringInterval: 'centuries',
     });
   });
 });

@@ -6,6 +6,7 @@ process.env.DATABASE_URL =
   process.env.DATABASE_URL || 'postgres://user:pass@localhost:5432/equpo_test';
 process.env.SYSTEM_API_KEY = process.env.SYSTEM_API_KEY || 'test-system-key';
 process.env.API_PREFIX = process.env.API_PREFIX || '/api/v1';
+process.env.GOOGLE_CLOUD_PROJECT = process.env.GOOGLE_CLOUD_PROJECT || 'equpo1';
 
 const { app } = await import('../dist/app.js');
 
