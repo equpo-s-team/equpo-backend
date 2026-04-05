@@ -133,6 +133,26 @@ api.get('/health', (_req, res) => {
   res.json({ ok: true, prefix: config.apiPrefix });
 });
 
+api.get('/users/:userUid', requireUser, userRateLimit, async (req, res, next) => {
+  try {
+    const { userUid } = req.params;
+    const result = await pool.query(
+      `SELECT uid, display_name AS "displayName", photo_url AS "photoURL" FROM public."user" WHERE uid = $1 LIMIT 1`,
+      [userUid]
+    );
+
+    if (!result.rowCount) {
+      const error = new EqupoError('User not found');
+      error.status = ERROR_STATUS.NOT_FOUND;
+      throw error;
+    }
+
+    return res.json({ user: result.rows[0] });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 api.get('/teams/me', requireUser, async (req, res, next) => {
   try {
     const actorUid = getActorUid(req);
@@ -149,9 +169,10 @@ api.get('/teams/me', requireUser, async (req, res, next) => {
          COALESCE(
            json_agg(
              json_build_object(
-               'userUid',  tm.user_uid,
-               'role',     tm.role,
-               'joinedAt', tm.joined_at
+               'userUid',     tm.user_uid,
+               'role',        tm.role,
+               'joinedAt',    tm.joined_at,
+               'displayName', u.display_name
              )
            ) FILTER (WHERE tm.user_uid IS NOT NULL),
            '[]'
@@ -161,6 +182,8 @@ api.get('/teams/me', requireUser, async (req, res, next) => {
          ON me.team_id = t.id AND me.user_uid = $1
        LEFT JOIN public.team_membership tm
          ON tm.team_id = t.id
+       LEFT JOIN public."user" u
+         ON u.uid = tm.user_uid
        GROUP BY t.id
        ORDER BY t.created_at DESC`,
       [actorUid]
