@@ -140,9 +140,12 @@ function toReportPriorityLabel(priority: string): ReportPriorityLabel {
 }
 
 function getReportDateRange(days: number) {
-  const rangeEnd = new Date();
-  const rangeStart = new Date(rangeEnd);
-  rangeStart.setDate(rangeStart.getDate() - days);
+  const today = new Date();
+  const rangeStart = new Date(today);
+  rangeStart.setDate(today.getDate() - days);
+
+  const rangeEnd = new Date(today);
+  rangeEnd.setDate(today.getDate() + days);
 
   return {
     rangeStart,
@@ -1424,17 +1427,25 @@ api.get(
           [parsedTeamId, authenticatedActorUid]
         );
 
-        const [kpi, members, overdueTasks] = await Promise.all([
-          getReportsKpi(client, parsedTeamId, rangeStart, rangeEnd),
-          getReportsMembers(client, parsedTeamId, rangeStart, rangeEnd),
-          getReportsOverdueTasks(
-            client,
-            parsedTeamId,
-            rangeStart,
-            rangeEnd,
-            overdueLimit
-          ),
-        ]);
+        const kpi = await getReportsKpi(
+          client,
+          parsedTeamId,
+          rangeStart,
+          rangeEnd
+        );
+        const members = await getReportsMembers(
+          client,
+          parsedTeamId,
+          rangeStart,
+          rangeEnd
+        );
+        const overdueTasks = await getReportsOverdueTasks(
+          client,
+          parsedTeamId,
+          rangeStart,
+          rangeEnd,
+          overdueLimit
+        );
 
         return {
           kpi,
