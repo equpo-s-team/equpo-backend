@@ -45,6 +45,18 @@ import {
   updateTeamMemberRoleSchema,
   updateTeamSchema,
 } from '#a/domains/team/schemas/index.js';
+import {
+  zegoTokenParam,
+  createGroupSchema,
+  addGroupMembersSchema,
+  groupIdParam,
+} from '#a/domains/room/schemas/index.js';
+import { generateZegoToken } from '#a/domains/room/zegoToken.js';
+import {
+  createChatRoomInFirestore,
+  addChatRoomMemberInFirestore,
+  insertSystemMessage,
+} from '#a/domains/room/firestore/index.js';
 import winston from 'winston';
 import { ERROR_STATUS, SUCCESS_STATUS } from '#a/constants/httpStatusCodes.js';
 import { EqupoError } from '#a/types/EqupoError.js';
@@ -441,6 +453,26 @@ api.post('/teams', requireUser, userRateLimit, async (req, res, next) => {
       'leader'
     );
 
+    // Auto-create "General" group + chatRoom
+    const generalGroup = await withTransaction(async client => {
+      const groupResult = await client.query(
+        `INSERT INTO public."group" (team_id, group_name) VALUES ($1, 'General') RETURNING id`,
+        [team.id]
+      );
+      const groupId = groupResult.rows[0].id as string;
+
+      await client.query(
+        `INSERT INTO public.group_membership (group_id, user_uid) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [groupId, authenticatedActorUid]
+      );
+
+      return { id: groupId };
+    });
+
+    await createChatRoomInFirestore(team.id as string, generalGroup.id, 'General', authenticatedActorUid);
+    await addChatRoomMemberInFirestore(team.id as string, generalGroup.id, authenticatedActorUid, 'leader');
+    await insertSystemMessage(team.id as string, generalGroup.id, '🎉 Grupo "General" creado');
+
     logEndpointAudit({
       operation: 'teams.create',
       outcome: 'success',
@@ -572,6 +604,28 @@ api.post(
         membership.user_uid,
         membership.role
       );
+
+      // Auto-add new member to "General" group
+      const generalGroupResult = await pool.query(
+        `SELECT id FROM public."group" WHERE team_id = $1 AND group_name = 'General' LIMIT 1`,
+        [parsedTeamId]
+      );
+      if (generalGroupResult.rowCount) {
+        const generalGroupId = generalGroupResult.rows[0].id as string;
+        await pool.query(
+          `INSERT INTO public.group_membership (group_id, user_uid) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [generalGroupId, input.userUid]
+        );
+        await addChatRoomMemberInFirestore(parsedTeamId, generalGroupId, input.userUid, input.role);
+
+        // Fetch display name for system message
+        const userResult = await pool.query(
+          `SELECT display_name FROM public."user" WHERE uid = $1 LIMIT 1`,
+          [input.userUid]
+        );
+        const displayName = (userResult.rows[0]?.display_name as string | null) ?? input.userUid;
+        await insertSystemMessage(parsedTeamId, generalGroupId, `👋 ${displayName} se unió al equipo`);
+      }
 
       logEndpointAudit({
         operation: 'teams.members.add',
@@ -1177,11 +1231,17 @@ api.get(
         await assertTeamMembership(client, parsedTeamId, authenticatedActorUid);
 
         const result = await client.query(
-          `SELECT id, group_name AS "groupName"
-           FROM public."group"
-           WHERE team_id = $1
-           ORDER BY group_name ASC`,
-          [parsedTeamId]
+          `SELECT g.id,
+                  g.group_name AS "groupName",
+                  (SELECT COUNT(*)::int FROM public.group_membership gm2 WHERE gm2.group_id = g.id) AS "memberCount"
+           FROM public."group" g
+           WHERE g.team_id = $1
+             AND (
+               EXISTS (SELECT 1 FROM public.group_membership gm WHERE gm.group_id = g.id AND gm.user_uid = $2)
+               OR EXISTS (SELECT 1 FROM public.team t WHERE t.id = $1 AND t.leader_uid = $2)
+             )
+           ORDER BY g.group_name ASC`,
+          [parsedTeamId, authenticatedActorUid]
         );
 
         return result.rows;
@@ -1198,6 +1258,230 @@ api.get(
     } catch (error) {
       logEndpointAudit({
         operation: 'teams.groups.list',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
+
+api.post(
+  '/teams/:teamId/groups',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    try {
+      ({ teamId } = teamIdParam.parse(req.params));
+      const parsedTeamId = teamId;
+      const input = assertBody(createGroupSchema, req.body);
+      const authenticatedActorUid = getActorUid(req);
+
+      const group = await withTransaction(async client => {
+        await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
+
+        const memberUids = input.memberUids ?? [];
+        for (const uid of memberUids) {
+          await assertUserBelongsToTeam(client, parsedTeamId, uid);
+        }
+
+        const groupResult = await client.query(
+          `INSERT INTO public."group" (team_id, group_name) VALUES ($1, $2) RETURNING id, group_name AS "groupName"`,
+          [parsedTeamId, input.name]
+        );
+        const createdGroup = groupResult.rows[0];
+
+        await client.query(
+          `INSERT INTO public.group_membership (group_id, user_uid) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [createdGroup.id, authenticatedActorUid]
+        );
+
+        for (const uid of memberUids) {
+          if (uid !== authenticatedActorUid) {
+            await client.query(
+              `INSERT INTO public.group_membership (group_id, user_uid) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+              [createdGroup.id, uid]
+            );
+          }
+        }
+
+        return createdGroup;
+      });
+
+      await createChatRoomInFirestore(parsedTeamId, group.id as string, input.name, authenticatedActorUid);
+      await addChatRoomMemberInFirestore(parsedTeamId, group.id as string, authenticatedActorUid, 'creator');
+
+      const memberUids = input.memberUids ?? [];
+      for (const uid of memberUids) {
+        if (uid !== authenticatedActorUid) {
+          await addChatRoomMemberInFirestore(parsedTeamId, group.id as string, uid, 'member');
+        }
+      }
+
+      const creatorResult = await pool.query(
+        `SELECT display_name FROM public."user" WHERE uid = $1 LIMIT 1`,
+        [authenticatedActorUid]
+      );
+      const creatorName = (creatorResult.rows[0]?.display_name as string | null) ?? authenticatedActorUid;
+      await insertSystemMessage(parsedTeamId, group.id as string, `🎉 Grupo "${input.name}" creado por ${creatorName}`);
+
+      logEndpointAudit({
+        operation: 'teams.groups.create',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+      });
+
+      return res.status(SUCCESS_STATUS.CREATED).json({ group });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'teams.groups.create',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
+
+api.post(
+  '/teams/:teamId/groups/:groupId/members',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    try {
+      ({ teamId } = teamIdParam.parse(req.params));
+      const groupId = String(req.params.groupId ?? '');
+      const parsedTeamId = teamId;
+      const input = assertBody(addGroupMembersSchema, req.body);
+      const authenticatedActorUid = getActorUid(req);
+
+      await withTransaction(async client => {
+        await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
+        await assertGroupBelongsToTeam(client, parsedTeamId, groupId);
+
+        const countResult = await client.query(
+          `SELECT COUNT(*)::int AS cnt FROM public.group_membership WHERE group_id = $1`,
+          [groupId]
+        );
+        const currentCount = Number(countResult.rows[0]?.cnt ?? 0);
+        if (currentCount + input.memberUids.length > 40) {
+          throw new EqupoError('Group cannot exceed 40 members', ERROR_STATUS.VALIDATION);
+        }
+
+        for (const uid of input.memberUids) {
+          await assertUserBelongsToTeam(client, parsedTeamId, uid);
+          await client.query(
+            `INSERT INTO public.group_membership (group_id, user_uid) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+            [groupId, uid]
+          );
+        }
+      });
+
+      for (const uid of input.memberUids) {
+        await addChatRoomMemberInFirestore(parsedTeamId, groupId, uid, 'member');
+
+        const userResult = await pool.query(
+          `SELECT display_name FROM public."user" WHERE uid = $1 LIMIT 1`,
+          [uid]
+        );
+        const displayName = (userResult.rows[0]?.display_name as string | null) ?? uid;
+        await insertSystemMessage(parsedTeamId, groupId, `👤 ${displayName} fue agregado al grupo`);
+      }
+
+      logEndpointAudit({
+        operation: 'teams.groups.members.add',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+      });
+
+      return res.status(SUCCESS_STATUS.CREATED).json({ added: input.memberUids.length });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'teams.groups.members.add',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
+
+api.post(
+  '/teams/:teamId/rooms/:roomId/zego-token',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    try {
+      const params = zegoTokenParam.parse(req.params);
+      teamId = params.teamId;
+      const parsedTeamId = params.teamId;
+      const roomId = params.roomId;
+      const authenticatedActorUid = getActorUid(req);
+
+      await withTransaction(async client => {
+        const groupCheck = await client.query(
+          `SELECT 1 FROM public."group" g
+           WHERE g.id = $1 AND g.team_id = $2
+           AND (
+             EXISTS (SELECT 1 FROM public.group_membership gm WHERE gm.group_id = $1 AND gm.user_uid = $3)
+             OR EXISTS (SELECT 1 FROM public.team t WHERE t.id = $2 AND t.leader_uid = $3)
+           )
+           LIMIT 1`,
+          [roomId, parsedTeamId, authenticatedActorUid]
+        );
+
+        if (!groupCheck.rowCount) {
+          throw new EqupoError('Forbidden: not a member of this group', ERROR_STATUS.FORBIDDEN);
+        }
+      });
+
+      const token = generateZegoToken(
+        config.zegoAppId,
+        authenticatedActorUid,
+        config.zegoServerSecret,
+        config.zegoTokenTtlSeconds
+      );
+
+      const expiresAt = new Date(Date.now() + config.zegoTokenTtlSeconds * 1000).toISOString();
+
+      const userResult = await pool.query(
+        `SELECT display_name FROM public."user" WHERE uid = $1 LIMIT 1`,
+        [authenticatedActorUid]
+      );
+      const displayName = (userResult.rows[0]?.display_name as string | null) ?? authenticatedActorUid;
+      await insertSystemMessage(parsedTeamId, roomId, `📹 ${displayName} inició una videollamada`);
+
+      logEndpointAudit({
+        operation: 'rooms.zegoToken',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+      });
+
+      return res.status(SUCCESS_STATUS.OK).json({
+        token,
+        appId: config.zegoAppId,
+        userId: authenticatedActorUid,
+        roomId,
+        expiresAt,
+      });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'rooms.zegoToken',
         outcome: 'error',
         actorUid,
         teamId,

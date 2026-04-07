@@ -4,3 +4,4 @@ export * as achievementSchemas from './achievement/schemas/index.js';
 export * as rewardSchemas from './reward/schemas/index.js';
 export * as taskSchemas from './task/schemas/index.js';
 export * as taskGuards from './task/guards/index.js';
+export * as roomSchemas from './room/schemas/index.js';
