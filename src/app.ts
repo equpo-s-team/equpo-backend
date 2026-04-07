@@ -1594,7 +1594,6 @@ api.get(
          LEFT JOIN public.group_membership gm ON gm.group_id = t.assigned_group_id
          WHERE t.team_id = $1
            AND (t.assigned_user_uid = $2 OR gm.user_uid = $2)
-           AND t.due_date >= NOW()
          ORDER BY t.id`,
           [parsedTeamId, authenticatedActorUid]
         );
