@@ -1449,11 +1449,18 @@ api.post(
         }
       });
 
+      const payloadString = JSON.stringify({
+        room_id: roomId,
+        privilege: { "1": 1, "2": 1 },
+        stream_id_list: null
+      });
+
       const token = generateZegoToken(
         config.zegoAppId,
         authenticatedActorUid,
         config.zegoServerSecret,
-        config.zegoTokenTtlSeconds
+        config.zegoTokenTtlSeconds,
+        payloadString
       );
 
       const expiresAt = new Date(Date.now() + config.zegoTokenTtlSeconds * 1000).toISOString();

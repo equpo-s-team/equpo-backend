@@ -23,19 +23,30 @@ function makeNonce(): number {
   return crypto.randomInt(0, 2_147_483_647);
 }
 
+function getAlgorithm(keyLength: number): string {
+  switch (keyLength) {
+    case 16:
+      return 'aes-128-cbc';
+    case 24:
+      return 'aes-192-cbc';
+    case 32:
+      return 'aes-256-cbc';
+    default:
+      throw new Error('Invalid key length: ' + keyLength);
+  }
+}
+
 function encryptAesCbc(
   plainText: string,
   secretKey: string,
-  iv: Buffer
+  iv: string | Buffer
 ): Buffer {
   const key = Buffer.from(secretKey, 'utf-8');
-  const cipher = crypto.createCipheriv('aes-128-cbc', key.subarray(0, 16), iv);
+  const cipher = crypto.createCipheriv(getAlgorithm(key.length), key, iv);
   cipher.setAutoPadding(true);
-  const encrypted = Buffer.concat([
-    cipher.update(plainText, 'utf-8'),
-    cipher.final(),
-  ]);
-  return encrypted;
+  const encrypted = cipher.update(plainText, 'utf-8');
+  const final = cipher.final();
+  return Buffer.concat([encrypted, final]);
 }
 
 /**
