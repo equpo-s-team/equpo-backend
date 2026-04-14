@@ -469,9 +469,23 @@ api.post('/teams', requireUser, userRateLimit, async (req, res, next) => {
       return { id: groupId };
     });
 
-    await createChatRoomInFirestore(team.id as string, generalGroup.id, 'General', authenticatedActorUid);
-    await addChatRoomMemberInFirestore(team.id as string, generalGroup.id, authenticatedActorUid, 'leader');
-    await insertSystemMessage(team.id as string, generalGroup.id, '🎉 Grupo "General" creado');
+    await createChatRoomInFirestore(
+      team.id as string,
+      generalGroup.id,
+      'General',
+      authenticatedActorUid
+    );
+    await addChatRoomMemberInFirestore(
+      team.id as string,
+      generalGroup.id,
+      authenticatedActorUid,
+      'leader'
+    );
+    await insertSystemMessage(
+      team.id as string,
+      generalGroup.id,
+      '🎉 Grupo "General" creado'
+    );
 
     logEndpointAudit({
       operation: 'teams.create',
@@ -616,15 +630,25 @@ api.post(
           `INSERT INTO public.group_membership (group_id, user_uid) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
           [generalGroupId, input.userUid]
         );
-        await addChatRoomMemberInFirestore(parsedTeamId, generalGroupId, input.userUid, input.role);
+        await addChatRoomMemberInFirestore(
+          parsedTeamId,
+          generalGroupId,
+          input.userUid,
+          input.role
+        );
 
         // Fetch display name for system message
         const userResult = await pool.query(
           `SELECT display_name FROM public."user" WHERE uid = $1 LIMIT 1`,
           [input.userUid]
         );
-        const displayName = (userResult.rows[0]?.display_name as string | null) ?? input.userUid;
-        await insertSystemMessage(parsedTeamId, generalGroupId, `👋 ${displayName} se unió al equipo`);
+        const displayName =
+          (userResult.rows[0]?.display_name as string | null) ?? input.userUid;
+        await insertSystemMessage(
+          parsedTeamId,
+          generalGroupId,
+          `👋 ${displayName} se unió al equipo`
+        );
       }
 
       logEndpointAudit({
@@ -1312,13 +1336,28 @@ api.post(
         return createdGroup;
       });
 
-      await createChatRoomInFirestore(parsedTeamId, group.id as string, input.name, authenticatedActorUid);
-      await addChatRoomMemberInFirestore(parsedTeamId, group.id as string, authenticatedActorUid, 'creator');
+      await createChatRoomInFirestore(
+        parsedTeamId,
+        group.id as string,
+        input.name,
+        authenticatedActorUid
+      );
+      await addChatRoomMemberInFirestore(
+        parsedTeamId,
+        group.id as string,
+        authenticatedActorUid,
+        'creator'
+      );
 
       const memberUids = input.memberUids ?? [];
       for (const uid of memberUids) {
         if (uid !== authenticatedActorUid) {
-          await addChatRoomMemberInFirestore(parsedTeamId, group.id as string, uid, 'member');
+          await addChatRoomMemberInFirestore(
+            parsedTeamId,
+            group.id as string,
+            uid,
+            'member'
+          );
         }
       }
 
@@ -1326,8 +1365,14 @@ api.post(
         `SELECT display_name FROM public."user" WHERE uid = $1 LIMIT 1`,
         [authenticatedActorUid]
       );
-      const creatorName = (creatorResult.rows[0]?.display_name as string | null) ?? authenticatedActorUid;
-      await insertSystemMessage(parsedTeamId, group.id as string, `🎉 Grupo "${input.name}" creado por ${creatorName}`);
+      const creatorName =
+        (creatorResult.rows[0]?.display_name as string | null) ??
+        authenticatedActorUid;
+      await insertSystemMessage(
+        parsedTeamId,
+        group.id as string,
+        `🎉 Grupo "${input.name}" creado por ${creatorName}`
+      );
 
       logEndpointAudit({
         operation: 'teams.groups.create',
@@ -1374,7 +1419,10 @@ api.post(
         );
         const currentCount = Number(countResult.rows[0]?.cnt ?? 0);
         if (currentCount + input.memberUids.length > 40) {
-          throw new EqupoError('Group cannot exceed 40 members', ERROR_STATUS.VALIDATION);
+          throw new EqupoError(
+            'Group cannot exceed 40 members',
+            ERROR_STATUS.VALIDATION
+          );
         }
 
         for (const uid of input.memberUids) {
@@ -1387,14 +1435,24 @@ api.post(
       });
 
       for (const uid of input.memberUids) {
-        await addChatRoomMemberInFirestore(parsedTeamId, groupId, uid, 'member');
+        await addChatRoomMemberInFirestore(
+          parsedTeamId,
+          groupId,
+          uid,
+          'member'
+        );
 
         const userResult = await pool.query(
           `SELECT display_name FROM public."user" WHERE uid = $1 LIMIT 1`,
           [uid]
         );
-        const displayName = (userResult.rows[0]?.display_name as string | null) ?? uid;
-        await insertSystemMessage(parsedTeamId, groupId, `👤 ${displayName} fue agregado al grupo`);
+        const displayName =
+          (userResult.rows[0]?.display_name as string | null) ?? uid;
+        await insertSystemMessage(
+          parsedTeamId,
+          groupId,
+          `👤 ${displayName} fue agregado al grupo`
+        );
       }
 
       logEndpointAudit({
@@ -1404,7 +1462,9 @@ api.post(
         teamId: parsedTeamId,
       });
 
-      return res.status(SUCCESS_STATUS.CREATED).json({ added: input.memberUids.length });
+      return res
+        .status(SUCCESS_STATUS.CREATED)
+        .json({ added: input.memberUids.length });
     } catch (error) {
       logEndpointAudit({
         operation: 'teams.groups.members.add',
@@ -1445,14 +1505,17 @@ api.post(
         );
 
         if (!groupCheck.rowCount) {
-          throw new EqupoError('Forbidden: not a member of this group', ERROR_STATUS.FORBIDDEN);
+          throw new EqupoError(
+            'Forbidden: not a member of this group',
+            ERROR_STATUS.FORBIDDEN
+          );
         }
       });
 
       const payloadString = JSON.stringify({
         room_id: roomId,
-        privilege: { "1": 1, "2": 1 },
-        stream_id_list: null
+        privilege: { '1': 1, '2': 1 },
+        stream_id_list: null,
       });
 
       const token = generateZegoToken(
@@ -1463,14 +1526,22 @@ api.post(
         payloadString
       );
 
-      const expiresAt = new Date(Date.now() + config.zegoTokenTtlSeconds * 1000).toISOString();
+      const expiresAt = new Date(
+        Date.now() + config.zegoTokenTtlSeconds * 1000
+      ).toISOString();
 
       const userResult = await pool.query(
         `SELECT display_name FROM public."user" WHERE uid = $1 LIMIT 1`,
         [authenticatedActorUid]
       );
-      const displayName = (userResult.rows[0]?.display_name as string | null) ?? authenticatedActorUid;
-      await insertSystemMessage(parsedTeamId, roomId, `📹 ${displayName} inició una videollamada`);
+      const displayName =
+        (userResult.rows[0]?.display_name as string | null) ??
+        authenticatedActorUid;
+      await insertSystemMessage(
+        parsedTeamId,
+        roomId,
+        `📹 ${displayName} inició una videollamada`
+      );
 
       logEndpointAudit({
         operation: 'rooms.zegoToken',
