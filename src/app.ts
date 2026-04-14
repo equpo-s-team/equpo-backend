@@ -49,7 +49,6 @@ import {
   zegoTokenParam,
   createGroupSchema,
   addGroupMembersSchema,
-  groupIdParam,
 } from '#a/domains/room/schemas/index.js';
 import { generateZegoToken } from '#a/domains/room/zegoToken.js';
 import {
