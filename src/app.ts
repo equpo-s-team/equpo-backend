@@ -35,7 +35,14 @@ import {
   deleteTaskFromFirestore,
   upsertTaskInFirestore,
 } from '#a/domains/task/firestore/index.js';
-import { upsertTeamMembershipInFirestore } from '#a/domains/team/firestore/teamMembershipFirestore.js';
+import {
+  upsertTeamMembershipInFirestore,
+  deleteTeamMembershipFromFirestore,
+} from '#a/domains/team/firestore/teamMembershipFirestore.js';
+import {
+  deleteTeamFromFirestore,
+  deleteTeamStorageFiles,
+} from '#a/domains/team/firestore/teamDeleteFirestore.js';
 import {
   createTeamRewardSchema,
   createTeamSchema,
@@ -54,6 +61,7 @@ import { generateZegoToken } from '#a/domains/room/zegoToken.js';
 import {
   createChatRoomInFirestore,
   addChatRoomMemberInFirestore,
+  removeChatRoomMemberFromFirestore,
   insertSystemMessage,
 } from '#a/domains/room/firestore/index.js';
 import winston from 'winston';
@@ -387,6 +395,7 @@ api.get('/teams/me', requireUser, async (req, res, next) => {
          t.leader_uid       AS "leaderUid",
          t.virtual_currency AS "virtualCurrency",
          t.description,
+         t.photo_u_r_l      AS "photoUrl",
          t.created_at       AS "createdAt",
          t.updated_at       AS "updatedAt",
          COALESCE(
@@ -543,12 +552,16 @@ api.patch(
           updates.push(`virtual_currency = $${index++}`);
           values.push(input.virtualCurrency);
         }
+        if (input.photoUrl !== undefined) {
+          updates.push(`photo_u_r_l = $${index++}`);
+          values.push(input.photoUrl);
+        }
 
         updates.push('updated_at = NOW()');
         values.push(parsedTeamId);
 
         const result = await client.query(
-          `UPDATE public.team SET ${updates.join(', ')} WHERE id = $${index} RETURNING id, name, leader_uid, virtual_currency, description, updated_at`,
+          `UPDATE public.team SET ${updates.join(', ')} WHERE id = $${index} RETURNING id, name, leader_uid, virtual_currency, description, photo_u_r_l AS "photoUrl", updated_at`,
           values
         );
 
@@ -740,8 +753,225 @@ api.patch(
   }
 );
 
+// ── DELETE /teams/:teamId/members/:userUid ── Kick a team member ─────────────
+api.delete(
+  '/teams/:teamId/members/:userUid',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    let userUid: string | null = null;
+    try {
+      ({ teamId, userUid } = teamMemberParam.parse(req.params));
+      const parsedTeamId = teamId;
+      const parsedUserUid = userUid;
+      const authenticatedActorUid = getActorUid(req);
+
+      // Prevent removing yourself as leader
+      if (parsedUserUid === authenticatedActorUid) {
+        throw new EqupoError(
+          'You cannot remove yourself from the team',
+          ERROR_STATUS.VALIDATION
+        );
+      }
+
+      const kickResult = await withTransaction(async client => {
+        const { isLeader, role: actorRole } = await assertTeamPermission(
+          client,
+          parsedTeamId,
+          authenticatedActorUid
+        );
+
+        // Look up the target member's role
+        const targetResult = await client.query(
+          `SELECT tm.role
+           FROM public.team_membership tm
+           WHERE tm.team_id = $1 AND tm.user_uid = $2
+           LIMIT 1`,
+          [parsedTeamId, parsedUserUid]
+        );
+
+        if (!targetResult.rowCount) {
+          throw new EqupoError(
+            'Member not found in this team',
+            ERROR_STATUS.NOT_FOUND
+          );
+        }
+
+        const targetRole = targetResult.rows[0].role as string;
+
+        // Prevent kicking the leader
+        if (targetRole === 'leader') {
+          throw new EqupoError(
+            'The team leader cannot be removed',
+            ERROR_STATUS.FORBIDDEN
+          );
+        }
+
+        // Collaborators can only kick members/spectators, not other collaborators
+        if (
+          !isLeader &&
+          actorRole === 'collaborator' &&
+          targetRole === 'collaborator'
+        ) {
+          throw new EqupoError(
+            'Collaborators cannot remove other collaborators',
+            ERROR_STATUS.FORBIDDEN
+          );
+        }
+
+        // Fetch display name for system messages
+        const userResult = await client.query(
+          `SELECT display_name FROM public."user" WHERE uid = $1 LIMIT 1`,
+          [parsedUserUid]
+        );
+        const displayName =
+          (userResult.rows[0]?.display_name as string | null) ?? parsedUserUid;
+
+        // Fetch all groups this member belongs to in the team
+        const groupsResult = await client.query(
+          `SELECT gm.group_id
+           FROM public.group_membership gm
+           JOIN public."group" g ON g.id = gm.group_id
+           WHERE g.team_id = $1 AND gm.user_uid = $2`,
+          [parsedTeamId, parsedUserUid]
+        );
+        const groupIds = groupsResult.rows.map(r => r.group_id as string);
+
+        // Remove from all group memberships
+        if (groupIds.length > 0) {
+          await client.query(
+            `DELETE FROM public.group_membership
+             WHERE user_uid = $1 AND group_id = ANY($2::uuid[])`,
+            [parsedUserUid, groupIds]
+          );
+        }
+
+        // Remove from team_membership
+        await client.query(
+          `DELETE FROM public.team_membership WHERE team_id = $1 AND user_uid = $2`,
+          [parsedTeamId, parsedUserUid]
+        );
+
+        return { groupIds, displayName };
+      });
+
+      // Firestore cleanup after successful DB transaction
+      await deleteTeamMembershipFromFirestore(parsedTeamId, parsedUserUid);
+      for (const groupId of kickResult.groupIds) {
+        await removeChatRoomMemberFromFirestore(
+          parsedTeamId,
+          groupId,
+          parsedUserUid
+        );
+        await insertSystemMessage(
+          parsedTeamId,
+          groupId,
+          `👋 ${kickResult.displayName} fue removido del equipo`
+        );
+      }
+
+      logEndpointAudit({
+        operation: 'teams.members.remove',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+        targetUserUid: parsedUserUid,
+      });
+
+      return res.status(SUCCESS_STATUS.NO_CONTENT).end();
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'teams.members.remove',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        targetUserUid: userUid,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
+
+// ── DELETE /teams/:teamId ── Delete the entire team ──────────────────────────
+api.delete(
+  '/teams/:teamId',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    try {
+      ({ teamId } = teamIdParam.parse(req.params));
+      const parsedTeamId = teamId;
+      const authenticatedActorUid = getActorUid(req);
+
+      await withTransaction(async client => {
+        // Only the leader can delete the team
+        await assertTeamLeaderPermission(
+          client,
+          parsedTeamId,
+          authenticatedActorUid
+        );
+
+        // Cascade: task_category → task → group_membership → group → team_membership → team
+        await client.query(
+          `DELETE FROM public.task_category
+           WHERE task_id IN (SELECT id FROM public.task WHERE team_id = $1)`,
+          [parsedTeamId]
+        );
+        await client.query(`DELETE FROM public.task WHERE team_id = $1`, [
+          parsedTeamId,
+        ]);
+        await client.query(
+          `DELETE FROM public.group_membership
+           WHERE group_id IN (SELECT id FROM public."group" WHERE team_id = $1)`,
+          [parsedTeamId]
+        );
+        await client.query(`DELETE FROM public."group" WHERE team_id = $1`, [
+          parsedTeamId,
+        ]);
+        await client.query(
+          `DELETE FROM public.team_membership WHERE team_id = $1`,
+          [parsedTeamId]
+        );
+        await client.query(`DELETE FROM public.team WHERE id = $1`, [
+          parsedTeamId,
+        ]);
+      });
+
+      // After DB cleanup — Firestore + Storage (best-effort, non-blocking on partial failure)
+      await Promise.allSettled([
+        deleteTeamFromFirestore(parsedTeamId),
+        deleteTeamStorageFiles(parsedTeamId),
+      ]);
+
+      logEndpointAudit({
+        operation: 'teams.delete',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+      });
+
+      return res.status(SUCCESS_STATUS.NO_CONTENT).end();
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'teams.delete',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
+
 api.post(
   '/teams/:teamId/rewards',
+
   requireUser,
   userRateLimit,
   async (req, res, next) => {
@@ -1206,6 +1436,7 @@ api.get(
         const result = await client.query(
           `SELECT tm.user_uid AS "uid",
                   u.display_name AS "displayName",
+                  u.photo_u_r_l  AS "photoUrl",
                   tm.role
            FROM public.team_membership tm
            JOIN public."user" u ON u.uid = tm.user_uid

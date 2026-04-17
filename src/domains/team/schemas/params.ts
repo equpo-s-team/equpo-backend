@@ -13,6 +13,7 @@ export const updateTeamSchema = z.object({
   name: z.string().min(1).max(120).optional(),
   description: z.string().max(2000).nullable().optional(),
   virtualCurrency: z.number().int().min(0).optional(),
+  photoUrl: z.string().url().nullable().optional(),
 });
 
 export const inviteTeamMemberSchema = z.object({
