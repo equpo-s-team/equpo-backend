@@ -1617,7 +1617,8 @@ api.get(
 
         const result = await client.query(
           `SELECT g.id,
-                  g.group_name AS "groupName",
+                  g.group_name   AS "groupName",
+                  g.photo_u_r_l  AS "photoUrl",
                   (SELECT COUNT(*)::int FROM public.group_membership gm2 WHERE gm2.group_id = g.id) AS "memberCount"
            FROM public."group" g
            WHERE g.team_id = $1
