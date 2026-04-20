@@ -27,3 +27,7 @@ export const inviteTeamMemberSchema = z.object({
 export const updateTeamMemberRoleSchema = z.object({
   role: z.enum(['collaborator', 'spectator', 'member']),
 });
+
+export const mirrorMyAvatarSchema = z.object({
+  sourceUrl: z.string().url(),
+});

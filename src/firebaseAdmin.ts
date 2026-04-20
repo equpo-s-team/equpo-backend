@@ -42,9 +42,12 @@ if (!admin.apps.length) {
   const expectedProjectId =
     normalize(process.env.FIREBASE_PROJECT_ID_EXPECTED) ||
     DEFAULT_EXPECTED_PROJECT_ID;
+  const storageBucket =
+    normalize(process.env.FIREBASE_STORAGE_BUCKET) || undefined;
 
   admin.initializeApp({
     projectId: envProjectId,
+    storageBucket,
   });
 
   const activeProjectId =
@@ -73,4 +76,13 @@ export function getFirebaseAuth() {
 
 export function getFirestoreDb() {
   return admin.firestore();
+}
+
+export function getStorageBucket() {
+  const configuredBucket = normalize(process.env.FIREBASE_STORAGE_BUCKET);
+  if (configuredBucket) {
+    return admin.storage().bucket(configuredBucket);
+  }
+
+  return admin.storage().bucket();
 }

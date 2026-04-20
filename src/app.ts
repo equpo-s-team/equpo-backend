@@ -1,4 +1,6 @@
 import cors from 'cors';
+import { randomUUID } from 'node:crypto';
+import { URL } from 'node:url';
 import express, {
   Application,
   ErrorRequestHandler,
@@ -47,6 +49,7 @@ import {
   createTeamRewardSchema,
   createTeamSchema,
   inviteTeamMemberSchema,
+  mirrorMyAvatarSchema,
   teamIdParam,
   teamMemberParam,
   updateTeamMemberRoleSchema,
@@ -67,6 +70,39 @@ import {
 import winston from 'winston';
 import { ERROR_STATUS, SUCCESS_STATUS } from '#a/constants/httpStatusCodes.js';
 import { EqupoError } from '#a/types/EqupoError.js';
+import { getStorageBucket } from '#a/firebaseAdmin.js';
+
+const ALLOWED_EXTERNAL_AVATAR_HOSTS = new Set([
+  'lh3.googleusercontent.com',
+  'lh4.googleusercontent.com',
+  'lh5.googleusercontent.com',
+  'lh6.googleusercontent.com',
+]);
+
+const MAX_USER_AVATAR_BYTES = 5 * 1024 * 1024;
+
+function assertAllowedExternalAvatarUrl(sourceUrl: string): URL {
+  let parsedUrl: URL;
+
+  try {
+    parsedUrl = new URL(sourceUrl);
+  } catch {
+    throw new EqupoError('Invalid avatar source URL', ERROR_STATUS.VALIDATION);
+  }
+
+  if (parsedUrl.protocol !== 'https:') {
+    throw new EqupoError(
+      'Only HTTPS avatar URLs are allowed',
+      ERROR_STATUS.VALIDATION
+    );
+  }
+
+  if (!ALLOWED_EXTERNAL_AVATAR_HOSTS.has(parsedUrl.hostname)) {
+    throw new EqupoError('Avatar host is not allowed', ERROR_STATUS.VALIDATION);
+  }
+
+  return parsedUrl;
+}
 
 function getActorUid(req: Request): string {
   if (!req.user) {
@@ -426,6 +462,101 @@ api.get('/teams/me', requireUser, async (req, res, next) => {
     return next(error);
   }
 });
+
+api.post(
+  '/users/me/avatar/mirror',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+
+    try {
+      const authenticatedActorUid = getActorUid(req);
+      const { sourceUrl } = assertBody(mirrorMyAvatarSchema, req.body);
+      const parsedAvatarUrl = assertAllowedExternalAvatarUrl(sourceUrl);
+
+      const sourceResponse = await globalThis.fetch(
+        parsedAvatarUrl.toString(),
+        {
+          redirect: 'follow',
+        }
+      );
+
+      if (!sourceResponse.ok) {
+        throw new EqupoError(
+          `Failed to fetch avatar source (${sourceResponse.status})`,
+          ERROR_STATUS.SERVER_ERROR
+        );
+      }
+
+      const contentType = sourceResponse.headers.get('content-type') ?? '';
+      if (!contentType.startsWith('image/')) {
+        throw new EqupoError(
+          'Avatar source must be an image',
+          ERROR_STATUS.VALIDATION
+        );
+      }
+
+      const avatarArrayBuffer = await sourceResponse.arrayBuffer();
+      const avatarBuffer = Buffer.from(avatarArrayBuffer);
+
+      if (!avatarBuffer.length) {
+        throw new EqupoError('Avatar source is empty', ERROR_STATUS.VALIDATION);
+      }
+
+      if (avatarBuffer.length > MAX_USER_AVATAR_BYTES) {
+        throw new EqupoError(
+          'Avatar source exceeds 5MB limit',
+          ERROR_STATUS.VALIDATION
+        );
+      }
+
+      const bucket = getStorageBucket();
+      const objectPath = `users/${authenticatedActorUid}/profile`;
+      const downloadToken = randomUUID();
+
+      await bucket.file(objectPath).save(avatarBuffer, {
+        resumable: false,
+        contentType,
+        metadata: {
+          cacheControl: 'public,max-age=3600',
+          metadata: {
+            firebaseStorageDownloadTokens: downloadToken,
+          },
+        },
+      });
+
+      const photoURL = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(objectPath)}?alt=media&token=${downloadToken}`;
+
+      await withTransaction(async client => {
+        const updateResult = await client.query(
+          `UPDATE public."user"
+         SET photo_u_r_l = $1,
+             updated_at = NOW()
+         WHERE uid = $2`,
+          [photoURL, authenticatedActorUid]
+        );
+
+        if (updateResult.rowCount === 0) {
+          throw new EqupoError(
+            'User profile not found',
+            ERROR_STATUS.NOT_FOUND
+          );
+        }
+      });
+
+      return res.json({ photoURL });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'users.avatar.mirror',
+        outcome: 'error',
+        actorUid,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
 
 api.post('/teams', requireUser, userRateLimit, async (req, res, next) => {
   const actorUid = req.user?.uid ?? null;

@@ -6,5 +6,6 @@ export {
   updateTeamSchema,
   inviteTeamMemberSchema,
   updateTeamMemberRoleSchema,
+  mirrorMyAvatarSchema,
 } from './params.js';
 export { TEAM_ALLOWED_ROLES, TEAM_MEMBER_ROLES } from './constants.js';
