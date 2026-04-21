@@ -44,7 +44,7 @@ export const config = {
   zegoAppId: Number(required('ZEGO_APP_ID')),
   zegoServerSecret: required('ZEGO_SERVER_SECRET'),
   zegoTokenTtlSeconds: positiveNumber('ZEGO_TOKEN_TTL_SECONDS', 600),
-  groqApiKey: process.env.GROQ_API_KEY || '',
+  groqApiKey: required('GROQ_API_KEY'),
   groqBaseUrl: process.env.GROQ_BASE_URL || 'https://api.groq.com',
   groqModel: process.env.GROQ_MODEL || 'groq/compound',
 };
