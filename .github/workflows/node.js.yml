@@ -42,3 +42,6 @@ jobs:
 
       - name: Run tests
         run: npm test
+        env:
+          ZEGO_APP_ID: ${{ secrets.ZEGO_APP_ID }}
+          ZEGO_SERVER_SECRET: ${{ secrets.ZEGO_SERVER_SECRET }}

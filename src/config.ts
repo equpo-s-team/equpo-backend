@@ -41,4 +41,7 @@ export const config = {
     blockMs: positiveNumber('RATE_LIMIT_BLOCK_MS', 60_000),
     maxBlockMs: positiveNumber('RATE_LIMIT_MAX_BLOCK_MS', 900_000),
   },
+  zegoAppId: Number(required('ZEGO_APP_ID')),
+  zegoServerSecret: required('ZEGO_SERVER_SECRET'),
+  zegoTokenTtlSeconds: positiveNumber('ZEGO_TOKEN_TTL_SECONDS', 600),
 };
