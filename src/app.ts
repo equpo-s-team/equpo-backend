@@ -2456,21 +2456,14 @@ api.post(
   async (req, res, next) => {
     const actorUid = req.user?.uid ?? null;
     try {
-      const { generateDescriptionSchema } = await import(
-        '#a/domains/ai/schemas/index.js'
-      );
-      const { generateDescriptionWithGroq } = await import(
-        '#a/domains/ai/groqClient.js'
-      );
+      const { generateDescriptionSchema } =
+        await import('#a/domains/ai/schemas/index.js');
+      const { generateDescriptionWithGroq } =
+        await import('#a/domains/ai/groqClient.js');
 
-      const { description } = assertBody(
-        generateDescriptionSchema,
-        req.body
-      );
+      const { description } = assertBody(generateDescriptionSchema, req.body);
 
-      const content = await generateDescriptionWithGroq(
-        description as string
-      );
+      const content = await generateDescriptionWithGroq(description as string);
 
       logEndpointAudit({
         operation: 'ai.generateDescription',
