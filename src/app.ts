@@ -37,6 +37,7 @@ import {
   deleteTaskFromFirestore,
   upsertTaskInFirestore,
 } from '#a/domains/task/firestore/index.js';
+import { advanceDueDate } from '#a/domains/task/utils.js';
 import {
   upsertTeamMembershipInFirestore,
   deleteTeamMembershipFromFirestore,
@@ -70,7 +71,7 @@ import {
 import winston from 'winston';
 import { ERROR_STATUS, SUCCESS_STATUS } from '#a/constants/httpStatusCodes.js';
 import { EqupoError } from '#a/types/EqupoError.js';
-import { getStorageBucket } from '#a/firebaseAdmin.js';
+import { getFirestoreDb, getStorageBucket } from '#a/firebaseAdmin.js';
 
 const ALLOWED_EXTERNAL_AVATAR_HOSTS = new Set([
   'lh3.googleusercontent.com',
@@ -1405,7 +1406,7 @@ api.patch(
         );
 
         const taskResult = await client.query(
-          `SELECT id
+          `SELECT id, due_date, status
            FROM public.task
            WHERE id = $1 AND team_id = $2
            LIMIT 1`,
@@ -1416,6 +1417,19 @@ api.patch(
           const error = new EqupoError('Task not found');
           error.status = ERROR_STATUS.NOT_FOUND;
           throw error;
+        }
+
+        const existingTask = taskResult.rows[0];
+        const isOverdue =
+          existingTask.status !== 'done' &&
+          new Date(existingTask.due_date) < new Date();
+
+        if (isOverdue) {
+          await assertTeamPermission(
+            client,
+            parsedTeamId,
+            authenticatedActorUid
+          );
         }
 
         await assertTaskAssignmentsWithinTeam(
@@ -2025,6 +2039,53 @@ api.get(
       const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
       const hasNext = page < totalPages;
       const hasPrev = page > 1 && totalPages > 0;
+
+      // Lazy Update for overdue recurring tasks
+      const now = new Date();
+
+      for (const pt of tasks) {
+        if (pt.isRecurring && pt.dueDate && new Date(pt.dueDate) < now) {
+          const newDate = advanceDueDate(
+            pt.dueDate,
+            pt.recurringInterval,
+            pt.recurringCount || 1
+          );
+
+          // Update Postgres outside of the original transaction, this is fine for Lazy Updates.
+          pool
+            .query(
+              `UPDATE public.task SET due_date = $1::timestamptz WHERE id = $2`,
+              [newDate.toISOString(), pt.id]
+            )
+            .catch(error => {
+              winston.error(
+                `Failed to lazy update Postgres task ${pt.id}`,
+                error
+              );
+            });
+
+          // Update Firestore directly
+          getFirestoreDb()
+            .collection(parsedTeamId)
+            .doc(pt.id)
+            .set(
+              {
+                dueDate: newDate,
+                updatedAt: newDate,
+              },
+              { merge: true }
+            )
+            .catch(error => {
+              winston.error(
+                `Failed to lazy update Firestore task ${pt.id}`,
+                error
+              );
+            });
+
+          // Update the response so the user gets the fresh data
+          pt.dueDate = newDate.toISOString();
+        }
+      }
 
       logEndpointAudit({
         operation: 'tasks.list',
