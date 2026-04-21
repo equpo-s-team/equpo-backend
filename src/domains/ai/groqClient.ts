@@ -26,6 +26,13 @@ export async function generateDescriptionWithGroq(
   const baseUrl = config.groqBaseUrl;
   const model = config.groqModel;
 
+  if (!apiKey) {
+    throw new EqupoError(
+      'Groq API key is not configured on the server',
+      ERROR_STATUS.SERVER_ERROR
+    );
+  }
+
   const response = await globalThis.fetch(
     `${baseUrl}/openai/v1/chat/completions`,
     {
