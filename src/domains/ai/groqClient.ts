@@ -5,9 +5,11 @@ import { ERROR_STATUS } from '#a/constants/httpStatusCodes.js';
 const SYSTEM_PROMPT =
   'You are an AI assistant that generates refined task descriptions for a Kanban board. ' +
   'Do not greet or add introductory text; output only the improved description. ' +
-  'Use basic Markdown formatting (bold, italic, and unordered lists with "-"). ' +
-  'Expand the description to approximately 300 characters, and if it is already that length, ' +
-  'only improve its wording and punctuation.';
+  'Use basic Markdown formatting (**bold**, *italic*, and unordered lists with "-"). ' +
+  'Expand the description to approximately 500 characters, and if it is already that length, ' +
+  'only improve its wording and punctuation. ' +
+  'Structure the output into two sections: **Description** and **Acceptance Criteria**. ' +
+  'The description is: {description}';
 
 interface GroqChatChoice {
   message: { content: string | null };
