@@ -44,10 +44,14 @@ import {
   deleteTaskFromFirestore,
   upsertTaskInFirestore,
   patchTaskStatusInFirestore,
+  patchTaskRolloverInFirestore,
   patchStepsInFirestore,
   patchCommentariesInFirestore,
 } from '#a/domains/task/firestore/index.js';
-import type { StepFirestoreDoc, CommentaryFirestoreDoc } from '#a/domains/task/firestore/index.js';
+import type {
+  StepFirestoreDoc,
+  CommentaryFirestoreDoc,
+} from '#a/domains/task/firestore/index.js';
 import { advanceDueDate } from '#a/domains/task/utils.js';
 import {
   upsertTeamMembershipInFirestore,
@@ -197,10 +201,8 @@ async function fetchAllCommentariesForTask(
 ): Promise<CommentaryFirestoreDoc[]> {
   const result = await client.query(
     `SELECT tc.user_uid AS "userUid", tc.commentary,
-            tc.created_at AS "createdAt", tc.updated_at AS "updatedAt",
-            u.display_name AS "displayName", u.photo_u_r_l AS "photoURL"
+            tc.created_at AS "createdAt", tc.updated_at AS "updatedAt"
      FROM public.task_commentary tc
-     JOIN public."user" u ON u.uid = tc.user_uid
      WHERE tc.task_id = $1
      ORDER BY tc.created_at DESC`,
     [taskId]
@@ -1419,11 +1421,18 @@ api.post(
       const userStepsInput = (input.steps ?? []) as string[];
       await patchStepsInFirestore(task.teamId as string, task.id as string, [
         ...userStepsInput.map((s, i) => ({
-          step: s, isDone: false, position: i, createdAt: now, updatedAt: now,
+          step: s,
+          isDone: false,
+          position: i,
+          createdAt: now,
+          updatedAt: now,
         })),
         {
-          step: 'Supero Review', isDone: false,
-          position: userStepsInput.length, createdAt: now, updatedAt: now,
+          step: 'Supero Review',
+          isDone: false,
+          position: userStepsInput.length,
+          createdAt: now,
+          updatedAt: now,
         },
       ]);
 
@@ -2756,13 +2765,21 @@ api.patch(
                 );
               }
             }
-          } else if (taskStatus === 'in-qa') {
-            // Unchecking any regular step while in-qa → back to in-progress
+          } else if (taskStatus === 'in-qa' || taskStatus === 'done') {
+            // Unchecking any regular step while in-qa or done → back to in-progress.
+            // When coming from 'done', also auto-uncheck Supero Review so the QA gate is reset.
             newStatus = 'in-progress';
             await client.query(
               `UPDATE public.task SET status = 'in-progress' WHERE id = $1`,
               [parsedTaskId]
             );
+            if (taskStatus === 'done') {
+              await client.query(
+                `UPDATE public.task_step SET is_done = false, updated_at = NOW()
+                 WHERE task_id = $1 AND step = 'Supero Review'`,
+                [parsedTaskId]
+              );
+            }
           }
         }
 
@@ -2771,7 +2788,11 @@ api.patch(
       });
 
       if (result.newStatus !== result.taskStatus) {
-        await patchTaskStatusInFirestore(parsedTeamId, parsedTaskId, result.newStatus);
+        await patchTaskStatusInFirestore(
+          parsedTeamId,
+          parsedTaskId,
+          result.newStatus
+        );
       }
       await patchStepsInFirestore(parsedTeamId, parsedTaskId, result.allSteps);
 
@@ -2962,6 +2983,199 @@ api.delete(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Task Recurring Rollover
+// ─────────────────────────────────────────────────────────────────────────────
+
+function addInterval(date: Date, interval: string, count: number): Date {
+  const next = new Date(date);
+  switch (interval) {
+    case 'days':
+      next.setDate(next.getDate() + count);
+      break;
+    case 'weeks':
+      next.setDate(next.getDate() + count * 7);
+      break;
+    case 'months':
+      next.setMonth(next.getMonth() + count);
+      break;
+    case 'years':
+      next.setFullYear(next.getFullYear() + count);
+      break;
+  }
+  return next;
+}
+
+api.post(
+  '/teams/:teamId/tasks/:taskId/rollover',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    let taskId: string | null = null;
+    try {
+      ({ teamId, taskId } = teamTaskParam.parse(req.params));
+      const parsedTeamId = teamId;
+      const parsedTaskId = taskId;
+      const authenticatedActorUid = getActorUid(req);
+      const { expectedDueDate } = req.body as { expectedDueDate: string };
+
+      const rolledOver = await withTransaction(async client => {
+        await assertUserBelongsToTeam(
+          client,
+          parsedTeamId,
+          authenticatedActorUid
+        );
+
+        const taskResult = await client.query(
+          `SELECT id, due_date, status, is_recurring, recurring_interval, recurring_count
+           FROM public.task
+           WHERE id = $1 AND team_id = $2
+           LIMIT 1`,
+          [parsedTaskId, parsedTeamId]
+        );
+
+        if (!taskResult.rowCount) {
+          const err = new EqupoError('Task not found');
+          err.status = ERROR_STATUS.NOT_FOUND;
+          throw err;
+        }
+
+        const t = taskResult.rows[0];
+        if (!t.is_recurring || !t.recurring_interval || !t.recurring_count)
+          return false;
+
+        const currentDue = new Date(t.due_date as string);
+        if (
+          currentDue.toISOString() !== new Date(expectedDueDate).toISOString()
+        )
+          return false;
+        if (currentDue.getTime() > Date.now()) return false;
+
+        const nextDue = addInterval(
+          currentDue,
+          t.recurring_interval as string,
+          t.recurring_count as number
+        );
+
+        if ((t.status as string) !== 'done') {
+          // Clone as a new non-recurring task with the missed due date
+          const copyResult = await client.query(
+            `SELECT name, description, priority, assigned_user_uid, assigned_group_id
+             FROM public.task WHERE id = $1 LIMIT 1`,
+            [parsedTaskId]
+          );
+          const src = copyResult.rows[0];
+
+          const newTask = await client.query(
+            `INSERT INTO public.task
+               (team_id, name, description, due_date, priority, status,
+                is_recurring, recurring_interval, recurring_count,
+                assigned_user_uid, assigned_group_id)
+             VALUES ($1, $2, $3, $4::timestamptz, $5, 'todo', false, NULL, NULL, $6, $7)
+             RETURNING id`,
+            [
+              parsedTeamId,
+              src.name,
+              src.description ?? '',
+              currentDue.toISOString(),
+              src.priority,
+              src.assigned_user_uid ?? null,
+              src.assigned_group_id ?? null,
+            ]
+          );
+
+          const newTaskId = newTask.rows[0].id as string;
+
+          // Copy steps (preserving isDone from the missed occurrence)
+          const stepsResult = await client.query(
+            `SELECT step_text, is_done, position FROM public.task_step
+             WHERE task_id = $1 ORDER BY position ASC`,
+            [parsedTaskId]
+          );
+          for (const step of stepsResult.rows) {
+            await client.query(
+              `INSERT INTO public.task_step (task_id, step_text, is_done, position, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, NOW(), NOW())`,
+              [newTaskId, step.step_text, step.is_done, step.position]
+            );
+          }
+
+          const now = new Date();
+          await upsertTaskInFirestore({
+            teamId: parsedTeamId,
+            taskId: newTaskId,
+            name: src.name as string,
+            description: (src.description as string | null) ?? '',
+            dueDate: currentDue,
+            priority: src.priority as string,
+            status: 'todo',
+            isRecurring: false,
+            recurringInterval: null,
+            recurringCount: null,
+            assignedUserId: (src.assigned_user_uid as string | null) ?? null,
+            assignedGroup: (src.assigned_group_id as string | null) ?? null,
+            category: [],
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+
+        // Advance recurring task: new due date, reset status, reset steps
+        await client.query(
+          `UPDATE public.task
+           SET due_date = $1::timestamptz, status = 'todo', updated_at = NOW()
+           WHERE id = $2`,
+          [nextDue.toISOString(), parsedTaskId]
+        );
+
+        await client.query(
+          `UPDATE public.task_step SET is_done = false, updated_at = NOW()
+           WHERE task_id = $1`,
+          [parsedTaskId]
+        );
+
+        // Sync recurring task dueDate + status back to Firestore
+        await patchTaskRolloverInFirestore(parsedTeamId, parsedTaskId, nextDue);
+
+        const updatedStepsResult = await client.query(
+          `SELECT step_text AS "step", is_done AS "isDone", position,
+                  created_at AS "createdAt", updated_at AS "updatedAt"
+           FROM public.task_step WHERE task_id = $1 ORDER BY position ASC`,
+          [parsedTaskId]
+        );
+        await patchStepsInFirestore(
+          parsedTeamId,
+          parsedTaskId,
+          updatedStepsResult.rows
+        );
+
+        return true;
+      });
+
+      logEndpointAudit({
+        operation: 'tasks.rollover',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+        taskId: parsedTaskId,
+      });
+      return res.json({ rolledOver });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'tasks.rollover',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        taskId,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Task Commentaries
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -3067,20 +3281,21 @@ api.post(
         );
 
         const row = result.rows[0];
-        const userResult = await client.query(
-          `SELECT display_name AS "displayName", photo_u_r_l AS "photoURL"
-           FROM public."user" WHERE uid = $1 LIMIT 1`,
-          [authenticatedActorUid]
+        const allCommentaries = await fetchAllCommentariesForTask(
+          client,
+          parsedTaskId
         );
-        const userRow = userResult.rows[0];
-        const allCommentaries = await fetchAllCommentariesForTask(client, parsedTaskId);
         return {
-          commentary: { ...row, displayName: userRow?.displayName ?? null, photoURL: userRow?.photoURL ?? null },
+          commentary: row,
           allCommentaries,
         };
       });
 
-      await patchCommentariesInFirestore(parsedTeamId, parsedTaskId, commentary.allCommentaries);
+      await patchCommentariesInFirestore(
+        parsedTeamId,
+        parsedTaskId,
+        commentary.allCommentaries
+      );
 
       logEndpointAudit({
         operation: 'tasks.commentaries.create',
@@ -3089,7 +3304,9 @@ api.post(
         teamId: parsedTeamId,
         taskId: parsedTaskId,
       });
-      return res.status(SUCCESS_STATUS.CREATED).json({ commentary: commentary.commentary });
+      return res
+        .status(SUCCESS_STATUS.CREATED)
+        .json({ commentary: commentary.commentary });
     } catch (error) {
       logEndpointAudit({
         operation: 'tasks.commentaries.create',
@@ -3158,18 +3375,21 @@ api.patch(
         );
 
         const row = result.rows[0];
-        const userResult = await client.query(
-          `SELECT display_name AS "displayName" FROM public."user" WHERE uid = $1 LIMIT 1`,
-          [authenticatedActorUid]
+        const allCommentaries = await fetchAllCommentariesForTask(
+          client,
+          parsedTaskId
         );
-        const allCommentaries = await fetchAllCommentariesForTask(client, parsedTaskId);
         return {
-          commentary: { ...row, displayName: userResult.rows[0]?.displayName ?? null },
+          commentary: row,
           allCommentaries,
         };
       });
 
-      await patchCommentariesInFirestore(parsedTeamId, parsedTaskId, commentary.allCommentaries);
+      await patchCommentariesInFirestore(
+        parsedTeamId,
+        parsedTaskId,
+        commentary.allCommentaries
+      );
 
       logEndpointAudit({
         operation: 'tasks.commentaries.update',
@@ -3244,7 +3464,11 @@ api.delete(
         return fetchAllCommentariesForTask(client, parsedTaskId);
       });
 
-      await patchCommentariesInFirestore(parsedTeamId, parsedTaskId, allCommentaries);
+      await patchCommentariesInFirestore(
+        parsedTeamId,
+        parsedTaskId,
+        allCommentaries
+      );
 
       logEndpointAudit({
         operation: 'tasks.commentaries.delete',

@@ -14,8 +14,6 @@ export type StepFirestoreDoc = {
 
 export type CommentaryFirestoreDoc = {
   userUid: string;
-  displayName: string | null;
-  photoURL: string | null;
   commentary: string;
   createdAt: Date;
   updatedAt: Date;
@@ -43,6 +41,17 @@ export async function patchTaskStatusInFirestore(
   );
 }
 
+export async function patchTaskRolloverInFirestore(
+  teamId: string,
+  taskId: string,
+  nextDueDate: Date
+): Promise<void> {
+  await taskDocumentRef(teamId, taskId).set(
+    { status: 'todo', dueDate: nextDueDate, updatedAt: new Date() },
+    { merge: true }
+  );
+}
+
 export async function deleteTaskFromFirestore(teamId: string, taskId: string) {
   await taskDocumentRef(teamId, taskId).delete();
 }
@@ -56,7 +65,10 @@ export async function patchStepsInFirestore(
   for (const s of steps) {
     stepsMap[s.step] = s;
   }
-  await taskDocumentRef(teamId, taskId).set({ steps: stepsMap }, { merge: true });
+  // Replace the entire steps field so removed keys are dropped.
+  // set({ steps }, { merge: true }) deep-merges the map and leaves
+  // stale keys behind when a step is deleted.
+  await taskDocumentRef(teamId, taskId).update({ steps: stepsMap });
 }
 
 export async function patchCommentariesInFirestore(
@@ -72,5 +84,8 @@ export async function patchCommentariesInFirestore(
       .slice(0, 20);
     map[key] = c;
   }
-  await taskDocumentRef(teamId, taskId).set({ commentaries: map }, { merge: true });
+  await taskDocumentRef(teamId, taskId).set(
+    { commentaries: map },
+    { merge: true }
+  );
 }

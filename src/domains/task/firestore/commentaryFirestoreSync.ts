@@ -21,16 +21,12 @@ export async function upsertCommentaryInFirestore(input: {
   taskId: string;
   commentary: string;
   userUid: string;
-  displayName: string | null;
-  photoURL: string | null;
   createdAt: Date;
   updatedAt: Date;
 }) {
   await commentaryDocRef(input.teamId, input.taskId, input.commentary).set({
     taskId: input.taskId,
     userUid: input.userUid,
-    displayName: input.displayName,
-    photoURL: input.photoURL,
     commentary: input.commentary,
     createdAt: input.createdAt,
     updatedAt: input.updatedAt,
@@ -44,7 +40,11 @@ export async function updateCommentaryInFirestore(input: {
   newCommentary: string;
   updatedAt: Date;
 }) {
-  const oldRef = commentaryDocRef(input.teamId, input.taskId, input.oldCommentary);
+  const oldRef = commentaryDocRef(
+    input.teamId,
+    input.taskId,
+    input.oldCommentary
+  );
   const oldSnap = await oldRef.get();
   const oldData = oldSnap.data() ?? {};
   await oldRef.delete();
@@ -58,7 +58,7 @@ export async function updateCommentaryInFirestore(input: {
 export async function deleteCommentaryFromFirestore(
   teamId: string,
   taskId: string,
-  commentary: string,
+  commentary: string
 ) {
   await commentaryDocRef(teamId, taskId, commentary).delete();
 }

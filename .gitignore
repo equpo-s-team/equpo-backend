@@ -116,5 +116,7 @@ storybook-static/
 .vscode-test
 
 AGENTS.md
+.claudeignore
+CLAUDE.md
 .claude
 .agent
