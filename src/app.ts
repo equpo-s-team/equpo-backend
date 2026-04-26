@@ -1706,19 +1706,23 @@ api.patch(
                 const priority = (task.priority as string) ?? 'medium';
                 const xpAmount =
                     XP_REWARDS[priority as keyof typeof XP_REWARDS] ?? XP_REWARDS.medium;
-                const coinAmount =
+                const userCoinAmount =
+                    (COIN_REWARDS[priority as keyof typeof COIN_REWARDS] ??
+                    COIN_REWARDS.medium)/2;
+
+                const teamCoinAmount =
                     COIN_REWARDS[priority as keyof typeof COIN_REWARDS] ??
                     COIN_REWARDS.medium;
 
                 const xpResult = await withTransaction(async client => {
-                    // Grant XP to the actor who completed the task
                     const userResult = await client.query(
                         `UPDATE public."user"
              SET experience_points = COALESCE(experience_points, 0) + $1,
+                 virtual_currency = COALESCE(virtual_currency, 0) + $3,
                  updated_at = NOW()
              WHERE uid = $2
-             RETURNING experience_points, level`,
-                        [xpAmount, authenticatedActorUid]
+             RETURNING experience_points, level, virtual_currency`,
+                        [xpAmount, authenticatedActorUid, userCoinAmount]
                     );
 
                     const newTotalXp = Number(userResult.rows[0]?.experience_points ?? 0);
@@ -1742,7 +1746,7 @@ api.patch(
              SET virtual_currency = COALESCE(virtual_currency, 0) + $1,
                  updated_at = NOW()
              WHERE id = $2`,
-                        [coinAmount, parsedTeamId]
+                        [teamCoinAmount, parsedTeamId]
                     );
 
                     // Check achievements
@@ -1758,7 +1762,7 @@ api.patch(
 
                     return {
                         xpGained: xpAmount,
-                        coinsGained: coinAmount,
+                        coinsGained: teamCoinAmount,
                         newXp: newTotalXp,
                         newLevel,
                         leveledUp,
