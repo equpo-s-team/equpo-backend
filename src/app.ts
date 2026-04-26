@@ -32,10 +32,25 @@ import {
   taskListPaginationQuery,
   teamTaskParam,
   updateTaskSchema,
+  createTaskStepSchema,
+  toggleTaskStepSchema,
+  updateTaskStepSchema,
+  taskStepParam,
+  createTaskCommentarySchema,
+  updateTaskCommentarySchema,
+  taskCommentaryParam,
 } from '#a/domains/task/schemas/index.js';
 import {
   deleteTaskFromFirestore,
   upsertTaskInFirestore,
+  patchTaskStatusInFirestore,
+  patchTaskRolloverInFirestore,
+  patchStepsInFirestore,
+  patchCommentariesInFirestore,
+} from '#a/domains/task/firestore/index.js';
+import type {
+  StepFirestoreDoc,
+  CommentaryFirestoreDoc,
 } from '#a/domains/task/firestore/index.js';
 import { advanceDueDate } from '#a/domains/task/utils.js';
 import {
@@ -167,6 +182,34 @@ async function assertTaskAssignmentsWithinTeam(
   }
 }
 
+async function fetchAllStepsForTask(
+  client: import('pg').PoolClient,
+  taskId: string
+): Promise<StepFirestoreDoc[]> {
+  const result = await client.query(
+    `SELECT step, is_done AS "isDone", position,
+            created_at AS "createdAt", updated_at AS "updatedAt"
+     FROM public.task_step WHERE task_id = $1 ORDER BY position ASC`,
+    [taskId]
+  );
+  return result.rows as StepFirestoreDoc[];
+}
+
+async function fetchAllCommentariesForTask(
+  client: import('pg').PoolClient,
+  taskId: string
+): Promise<CommentaryFirestoreDoc[]> {
+  const result = await client.query(
+    `SELECT tc.user_uid AS "userUid", tc.commentary,
+            tc.created_at AS "createdAt", tc.updated_at AS "updatedAt"
+     FROM public.task_commentary tc
+     WHERE tc.task_id = $1
+     ORDER BY tc.created_at DESC`,
+    [taskId]
+  );
+  return result.rows as CommentaryFirestoreDoc[];
+}
+
 function normalizeCategories(categories: string[] | undefined): string[] {
   if (!categories?.length) return [];
 
@@ -270,13 +313,16 @@ async function getReportsMembers(
               rt.status,
               rt.assigned_user_uid AS user_uid
        FROM ranged_tasks rt
-       WHERE rt.assigned_user_uid IS NOT NULL
+       JOIN public.team_membership tm ON tm.user_uid = rt.assigned_user_uid AND tm.team_id = $1
+       WHERE rt.assigned_user_uid IS NOT NULL AND tm.role != 'spectator'
        UNION
        SELECT rt.id AS task_id,
               rt.status,
               gm.user_uid
        FROM ranged_tasks rt
        JOIN public.group_membership gm ON gm.group_id = rt.assigned_group_id
+       JOIN public.team_membership tm ON tm.user_uid = gm.user_uid AND tm.team_id = $1
+       WHERE tm.role != 'spectator'
      ),
      dedup_assigned AS (
        SELECT DISTINCT task_id, status, user_uid
@@ -344,11 +390,15 @@ async function getReportsOverdueTasks(
        SELECT ot.id AS task_id, u.uid, u.display_name
        FROM overdue_tasks ot
        JOIN public."user" u ON u.uid = ot.assigned_user_uid
+       JOIN public.team_membership tm ON tm.user_uid = u.uid AND tm.team_id = $1
+       WHERE tm.role != 'spectator'
        UNION
        SELECT ot.id AS task_id, u.uid, u.display_name
        FROM overdue_tasks ot
        JOIN public.group_membership gm ON gm.group_id = ot.assigned_group_id
        JOIN public."user" u ON u.uid = gm.user_uid
+       JOIN public.team_membership tm ON tm.user_uid = u.uid AND tm.team_id = $1
+       WHERE tm.role != 'spectator'
      ),
      assigned_agg AS (
        SELECT au.task_id,
@@ -1274,12 +1324,11 @@ api.post(
       const authenticatedActorUid = getActorUid(req);
       const normalizedCategories = normalizeCategories(input.categories);
 
+      // Always force status to 'todo'
+      const forcedStatus = 'todo';
+
       const task = await withTransaction(async client => {
-        await assertUserBelongsToTeam(
-          client,
-          parsedTeamId,
-          authenticatedActorUid
-        );
+        await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
         await assertTaskAssignmentsWithinTeam(
           client,
           parsedTeamId,
@@ -1305,7 +1354,7 @@ api.post(
             parsedTeamId,
             input.dueDate,
             input.priority,
-            input.status,
+            forcedStatus,
             input.isRecurring ?? false,
             input.recurringInterval ?? null,
             input.recurringCount ?? null,
@@ -1327,9 +1376,29 @@ api.post(
           }
         }
 
+        // Insert user-defined steps + auto-append "Supero Review"
+        const userSteps = input.steps ?? [];
+        for (let i = 0; i < userSteps.length; i++) {
+          await client.query(
+            `INSERT INTO public.task_step (task_id, step, is_done, position, created_at, updated_at)
+             VALUES ($1, $2, false, $3, NOW(), NOW())
+             ON CONFLICT (task_id, step) DO NOTHING`,
+            [createdTask.id, userSteps[i], i]
+          );
+        }
+        // Always append "Supero Review" as the last step
+        await client.query(
+          `INSERT INTO public.task_step (task_id, step, is_done, position, created_at, updated_at)
+           VALUES ($1, 'Supero Review', false, $2, NOW(), NOW())
+           ON CONFLICT (task_id, step) DO NOTHING`,
+          [createdTask.id, userSteps.length]
+        );
+
         return {
           ...createdTask,
           categories: normalizedCategories,
+          stepsTotal: userSteps.length + 1,
+          stepsDone: 0,
         };
       });
 
@@ -1350,6 +1419,25 @@ api.post(
         assignedUserId: (task.assignedUserUid as string | null) ?? null,
         assignedGroup: (task.assignedGroupId as string | null) ?? null,
       });
+
+      const now = new Date();
+      const userStepsInput = (input.steps ?? []) as string[];
+      await patchStepsInFirestore(task.teamId as string, task.id as string, [
+        ...userStepsInput.map((s, i) => ({
+          step: s,
+          isDone: false,
+          position: i,
+          createdAt: now,
+          updatedAt: now,
+        })),
+        {
+          step: 'Supero Review',
+          isDone: false,
+          position: userStepsInput.length,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
 
       logEndpointAudit({
         operation: 'tasks.create',
@@ -1399,11 +1487,7 @@ api.patch(
       }
 
       const task = await withTransaction(async client => {
-        await assertUserBelongsToTeam(
-          client,
-          parsedTeamId,
-          authenticatedActorUid
-        );
+        await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
 
         const taskResult = await client.query(
           `SELECT id, due_date, status
@@ -1509,6 +1593,20 @@ api.patch(
               [parsedTaskId, category]
             );
           }
+        }
+
+        // Uncheck "Supero Review" when moving status backward from 'done'
+        if (
+          input.status !== undefined &&
+          existingTask.status === 'done' &&
+          input.status !== 'done'
+        ) {
+          await client.query(
+            `UPDATE public.task_step
+             SET is_done = false, updated_at = NOW()
+             WHERE task_id = $1 AND step = 'Supero Review'`,
+            [parsedTaskId]
+          );
         }
 
         const categoryResult = await client.query(
@@ -1997,11 +2095,15 @@ api.get(
            SELECT pt.id AS task_id, u.uid, u.display_name
            FROM paged_tasks pt
            JOIN public."user" u ON u.uid = pt.assigned_user_uid
+           JOIN public.team_membership tm ON tm.user_uid = u.uid AND tm.team_id = $1
+           WHERE tm.role != 'spectator'
            UNION
            SELECT pt.id AS task_id, u.uid, u.display_name
            FROM paged_tasks pt
            JOIN public.group_membership gm ON gm.group_id = pt.assigned_group_id
            JOIN public."user" u ON u.uid = gm.user_uid
+           JOIN public.team_membership tm ON tm.user_uid = u.uid AND tm.team_id = $1
+           WHERE tm.role != 'spectator'
          ),
          assigned_agg AS (
            SELECT au.task_id,
@@ -2011,6 +2113,14 @@ api.get(
                   ) AS assigned_users
            FROM assigned_union au
            GROUP BY au.task_id
+         ),
+         step_counts AS (
+           SELECT ts.task_id,
+                  COUNT(*)::int AS steps_total,
+                  SUM(CASE WHEN ts.is_done THEN 1 ELSE 0 END)::int AS steps_done
+           FROM public.task_step ts
+           JOIN paged_tasks pt ON pt.id = ts.task_id
+           GROUP BY ts.task_id
          )
          SELECT pt.id,
                 pt.team_id AS "teamId",
@@ -2022,10 +2132,13 @@ api.get(
                 pt.recurring_count AS "recurringCount",
                 pt.assigned_group_id AS "assignedGroupId",
                 COALESCE(ca.categories, '{}') AS categories,
-                COALESCE(aa.assigned_users, '[]'::jsonb) AS "assignedUsers"
+                COALESCE(aa.assigned_users, '[]'::jsonb) AS "assignedUsers",
+                COALESCE(sc.steps_total, 0) AS "stepsTotal",
+                COALESCE(sc.steps_done, 0) AS "stepsDone"
          FROM paged_tasks pt
          LEFT JOIN category_agg ca ON ca.task_id = pt.id
          LEFT JOIN assigned_agg aa ON aa.task_id = pt.id
+         LEFT JOIN step_counts sc ON sc.task_id = pt.id
          ORDER BY pt.due_date ASC, pt.id ASC`,
           [parsedTeamId, limit, offset]
         );
@@ -2343,6 +2456,1034 @@ api.delete(
     } catch (error) {
       logEndpointAudit({
         operation: 'tasks.delete',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        taskId,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task Steps
+// ─────────────────────────────────────────────────────────────────────────────
+
+api.get(
+  '/teams/:teamId/tasks/:taskId/steps',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    let taskId: string | null = null;
+    try {
+      ({ teamId, taskId } = teamTaskParam.parse(req.params));
+      const parsedTeamId = teamId;
+      const parsedTaskId = taskId;
+      const authenticatedActorUid = getActorUid(req);
+
+      const steps = await withTransaction(async client => {
+        await assertTeamMembership(client, parsedTeamId, authenticatedActorUid);
+
+        const taskCheck = await client.query(
+          `SELECT id FROM public.task WHERE id = $1 AND team_id = $2 LIMIT 1`,
+          [parsedTaskId, parsedTeamId]
+        );
+        if (!taskCheck.rowCount) {
+          const error = new EqupoError('Task not found');
+          error.status = ERROR_STATUS.NOT_FOUND;
+          throw error;
+        }
+
+        const result = await client.query(
+          `SELECT task_id AS "taskId", step, is_done AS "isDone", position,
+                  created_at AS "createdAt", updated_at AS "updatedAt"
+           FROM public.task_step
+           WHERE task_id = $1
+           ORDER BY position ASC`,
+          [parsedTaskId]
+        );
+        return result.rows;
+      });
+
+      logEndpointAudit({
+        operation: 'tasks.steps.list',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+        taskId: parsedTaskId,
+      });
+      return res.json({ steps });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'tasks.steps.list',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        taskId,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
+
+api.post(
+  '/teams/:teamId/tasks/:taskId/steps',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    let taskId: string | null = null;
+    try {
+      ({ teamId, taskId } = teamTaskParam.parse(req.params));
+      const parsedTeamId = teamId;
+      const parsedTaskId = taskId;
+      const input = assertBody(createTaskStepSchema, req.body);
+      const authenticatedActorUid = getActorUid(req);
+
+      const step = await withTransaction(async client => {
+        await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
+
+        const taskCheck = await client.query(
+          `SELECT id FROM public.task WHERE id = $1 AND team_id = $2 LIMIT 1`,
+          [parsedTaskId, parsedTeamId]
+        );
+        if (!taskCheck.rowCount) {
+          const error = new EqupoError('Task not found');
+          error.status = ERROR_STATUS.NOT_FOUND;
+          throw error;
+        }
+
+        // Enforce max 14 user steps (position < last "Supero Review" position)
+        const countResult = await client.query(
+          `SELECT COUNT(*)::int AS cnt FROM public.task_step WHERE task_id = $1 AND step != 'Supero Review'`,
+          [parsedTaskId]
+        );
+        if (Number(countResult.rows[0]?.cnt ?? 0) >= 14) {
+          const error = new EqupoError(
+            'Maximum of 14 steps per task (excluding Supero Review)'
+          );
+          error.status = ERROR_STATUS.VALIDATION;
+          throw error;
+        }
+
+        // Cannot add a step named "Supero Review"
+        if (input.step === 'Supero Review') {
+          const error = new EqupoError(
+            '"Supero Review" step is auto-managed and cannot be added manually'
+          );
+          error.status = ERROR_STATUS.VALIDATION;
+          throw error;
+        }
+
+        // Get next position (before "Supero Review")
+        const superoResult = await client.query(
+          `SELECT position FROM public.task_step WHERE task_id = $1 AND step = 'Supero Review' LIMIT 1`,
+          [parsedTaskId]
+        );
+        const superoPos = superoResult.rowCount
+          ? (superoResult.rows[0].position as number)
+          : 0;
+
+        // Insert before "Supero Review" — shift Supero Review position up
+        await client.query(
+          `UPDATE public.task_step SET position = position + 1, updated_at = NOW()
+           WHERE task_id = $1 AND step = 'Supero Review'`,
+          [parsedTaskId]
+        );
+
+        const result = await client.query(
+          `INSERT INTO public.task_step (task_id, step, is_done, position, created_at, updated_at)
+           VALUES ($1, $2, false, $3, NOW(), NOW())
+           RETURNING task_id AS "taskId", step, is_done AS "isDone", position,
+                     created_at AS "createdAt", updated_at AS "updatedAt"`,
+          [parsedTaskId, input.step, superoPos]
+        );
+        const allSteps = await fetchAllStepsForTask(client, parsedTaskId);
+        return { step: result.rows[0], allSteps };
+      });
+
+      await patchStepsInFirestore(parsedTeamId, parsedTaskId, step.allSteps);
+
+      logEndpointAudit({
+        operation: 'tasks.steps.create',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+        taskId: parsedTaskId,
+      });
+      return res.status(SUCCESS_STATUS.CREATED).json({ step: step.step });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'tasks.steps.create',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        taskId,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
+
+api.patch(
+  '/teams/:teamId/tasks/:taskId/steps/:stepId/toggle',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    let taskId: string | null = null;
+    try {
+      const parsedParams = taskStepParam.parse(req.params);
+      teamId = parsedParams.teamId;
+      taskId = parsedParams.taskId;
+      const parsedTeamId = parsedParams.teamId;
+      const parsedTaskId = parsedParams.taskId;
+      const parsedStepId = parsedParams.stepId;
+      const input = assertBody(toggleTaskStepSchema, req.body);
+      const authenticatedActorUid = getActorUid(req);
+
+      const result = await withTransaction(async client => {
+        await assertTeamMembership(client, parsedTeamId, authenticatedActorUid);
+
+        const stepResult = await client.query(
+          `SELECT ts.step, ts.is_done,
+                  t.status, t.assigned_user_uid, t.assigned_group_id
+           FROM public.task_step ts
+           JOIN public.task t ON t.id = ts.task_id
+           WHERE ts.step = $1 AND ts.task_id = $2 AND t.team_id = $3
+           LIMIT 1`,
+          [parsedStepId, parsedTaskId, parsedTeamId]
+        );
+
+        if (!stepResult.rowCount) {
+          const error = new EqupoError('Step not found');
+          error.status = ERROR_STATUS.NOT_FOUND;
+          throw error;
+        }
+
+        const stepRow = stepResult.rows[0];
+        const isSuperoReview = stepRow.step === 'Supero Review';
+        const taskStatus: string = stepRow.status;
+
+        if (isSuperoReview) {
+          // Must be in-qa to check Supero Review
+          if (taskStatus !== 'in-qa') {
+            const error = new EqupoError(
+              'Supero Review can only be checked when the task is In QA'
+            );
+            error.status = ERROR_STATUS.VALIDATION;
+            throw error;
+          }
+
+          // Check actor role for restriction
+          const memberResult = await client.query(
+            `SELECT role FROM public.team_membership WHERE team_id = $1 AND user_uid = $2 LIMIT 1`,
+            [parsedTeamId, authenticatedActorUid]
+          );
+          const actorRole: string = memberResult.rows[0]?.role ?? 'member';
+          const isLeaderOrCollab =
+            actorRole === 'leader' || actorRole === 'collaborator';
+
+          // Check if actor is an assigned user
+          let isAssigned = stepRow.assigned_user_uid === authenticatedActorUid;
+          if (!isAssigned && stepRow.assigned_group_id) {
+            const groupCheck = await client.query(
+              `SELECT 1 FROM public.group_membership
+               WHERE group_id = $1 AND user_uid = $2 LIMIT 1`,
+              [stepRow.assigned_group_id, authenticatedActorUid]
+            );
+            isAssigned = (groupCheck.rowCount ?? 0) > 0;
+          }
+
+          if (isAssigned && !isLeaderOrCollab) {
+            const error = new EqupoError(
+              'Assigned users cannot check the Supero Review step unless they are a leader or collaborator'
+            );
+            error.status = ERROR_STATUS.FORBIDDEN;
+            throw error;
+          }
+        }
+
+        // Toggle the step
+        const updatedStep = await client.query(
+          `UPDATE public.task_step
+           SET is_done = $1, updated_at = NOW()
+           WHERE step = $2 AND task_id = $3
+           RETURNING task_id AS "taskId", step, is_done AS "isDone", position,
+                     created_at AS "createdAt", updated_at AS "updatedAt"`,
+          [input.isDone, parsedStepId, parsedTaskId]
+        );
+
+        let newStatus: string = taskStatus;
+
+        if (isSuperoReview) {
+          if (input.isDone) {
+            // Checking Supero Review → done
+            newStatus = 'done';
+            await client.query(
+              `UPDATE public.task SET status = 'done' WHERE id = $1`,
+              [parsedTaskId]
+            );
+          } else if (taskStatus === 'done') {
+            // Unchecking Supero Review → back to in-qa
+            newStatus = 'in-qa';
+            await client.query(
+              `UPDATE public.task SET status = 'in-qa' WHERE id = $1`,
+              [parsedTaskId]
+            );
+          }
+        } else {
+          if (input.isDone) {
+            // Checking a regular step while todo → in-progress
+            if (taskStatus === 'todo') {
+              newStatus = 'in-progress';
+              await client.query(
+                `UPDATE public.task SET status = 'in-progress' WHERE id = $1`,
+                [parsedTaskId]
+              );
+            }
+
+            // All regular steps done while in-progress → in-qa
+            const currentStatus = newStatus || taskStatus;
+            if (currentStatus === 'in-progress') {
+              const pendingResult = await client.query(
+                `SELECT COUNT(*)::int AS cnt
+                 FROM public.task_step
+                 WHERE task_id = $1 AND step != 'Supero Review' AND is_done = false`,
+                [parsedTaskId]
+              );
+              if (Number(pendingResult.rows[0]?.cnt ?? 0) === 0) {
+                newStatus = 'in-qa';
+                await client.query(
+                  `UPDATE public.task SET status = 'in-qa' WHERE id = $1`,
+                  [parsedTaskId]
+                );
+              }
+            }
+          } else if (taskStatus === 'in-qa' || taskStatus === 'done') {
+            // Unchecking any regular step while in-qa or done → back to in-progress.
+            // When coming from 'done', also auto-uncheck Supero Review so the QA gate is reset.
+            newStatus = 'in-progress';
+            await client.query(
+              `UPDATE public.task SET status = 'in-progress' WHERE id = $1`,
+              [parsedTaskId]
+            );
+            if (taskStatus === 'done') {
+              await client.query(
+                `UPDATE public.task_step SET is_done = false, updated_at = NOW()
+                 WHERE task_id = $1 AND step = 'Supero Review'`,
+                [parsedTaskId]
+              );
+            }
+          }
+        }
+
+        const allSteps = await fetchAllStepsForTask(client, parsedTaskId);
+        return { step: updatedStep.rows[0], newStatus, taskStatus, allSteps };
+      });
+
+      if (result.newStatus !== result.taskStatus) {
+        await patchTaskStatusInFirestore(
+          parsedTeamId,
+          parsedTaskId,
+          result.newStatus
+        );
+      }
+      await patchStepsInFirestore(parsedTeamId, parsedTaskId, result.allSteps);
+
+      logEndpointAudit({
+        operation: 'tasks.steps.toggle',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+        taskId: parsedTaskId,
+      });
+      return res.json({ step: result.step, newStatus: result.newStatus });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'tasks.steps.toggle',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        taskId,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
+
+api.patch(
+  '/teams/:teamId/tasks/:taskId/steps/:stepId',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    let taskId: string | null = null;
+    try {
+      const parsedParams = taskStepParam.parse(req.params);
+      teamId = parsedParams.teamId;
+      taskId = parsedParams.taskId;
+      const parsedTeamId = parsedParams.teamId;
+      const parsedTaskId = parsedParams.taskId;
+      const parsedStepId = parsedParams.stepId;
+      const input = assertBody(updateTaskStepSchema, req.body);
+      const authenticatedActorUid = getActorUid(req);
+
+      const step = await withTransaction(async client => {
+        await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
+
+        const stepResult = await client.query(
+          `SELECT ts.step
+           FROM public.task_step ts
+           JOIN public.task t ON t.id = ts.task_id
+           WHERE ts.step = $1 AND ts.task_id = $2 AND t.team_id = $3
+           LIMIT 1`,
+          [parsedStepId, parsedTaskId, parsedTeamId]
+        );
+
+        if (!stepResult.rowCount) {
+          const error = new EqupoError('Step not found');
+          error.status = ERROR_STATUS.NOT_FOUND;
+          throw error;
+        }
+
+        if (stepResult.rows[0].step === 'Supero Review') {
+          const error = new EqupoError(
+            'The Supero Review step cannot be edited'
+          );
+          error.status = ERROR_STATUS.VALIDATION;
+          throw error;
+        }
+
+        const result = await client.query(
+          `UPDATE public.task_step
+           SET step = $1, updated_at = NOW()
+           WHERE step = $2 AND task_id = $3
+           RETURNING task_id AS "taskId", step, is_done AS "isDone", position,
+                     created_at AS "createdAt", updated_at AS "updatedAt"`,
+          [input.step, parsedStepId, parsedTaskId]
+        );
+        const allSteps = await fetchAllStepsForTask(client, parsedTaskId);
+        return { step: result.rows[0], allSteps };
+      });
+
+      await patchStepsInFirestore(parsedTeamId, parsedTaskId, step.allSteps);
+
+      logEndpointAudit({
+        operation: 'tasks.steps.update',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+        taskId: parsedTaskId,
+      });
+      return res.json({ step: step.step });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'tasks.steps.update',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        taskId,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
+
+api.delete(
+  '/teams/:teamId/tasks/:taskId/steps/:stepId',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    let taskId: string | null = null;
+    try {
+      const parsedParams = taskStepParam.parse(req.params);
+      teamId = parsedParams.teamId;
+      taskId = parsedParams.taskId;
+      const parsedTeamId = parsedParams.teamId;
+      const parsedTaskId = parsedParams.taskId;
+      const parsedStepId = parsedParams.stepId;
+      const authenticatedActorUid = getActorUid(req);
+
+      const allSteps = await withTransaction(async client => {
+        await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
+
+        const stepResult = await client.query(
+          `SELECT ts.step, ts.position
+           FROM public.task_step ts
+           JOIN public.task t ON t.id = ts.task_id
+           WHERE ts.step = $1 AND ts.task_id = $2 AND t.team_id = $3
+           LIMIT 1`,
+          [parsedStepId, parsedTaskId, parsedTeamId]
+        );
+
+        if (!stepResult.rowCount) {
+          const error = new EqupoError('Step not found');
+          error.status = ERROR_STATUS.NOT_FOUND;
+          throw error;
+        }
+
+        if (stepResult.rows[0].step === 'Supero Review') {
+          const error = new EqupoError(
+            'The Supero Review step cannot be deleted'
+          );
+          error.status = ERROR_STATUS.VALIDATION;
+          throw error;
+        }
+
+        const deletedPos: number = stepResult.rows[0].position;
+        await client.query(
+          `DELETE FROM public.task_step WHERE step = $1 AND task_id = $2`,
+          [parsedStepId, parsedTaskId]
+        );
+
+        // Reorder remaining steps to close the gap
+        await client.query(
+          `UPDATE public.task_step
+           SET position = position - 1, updated_at = NOW()
+           WHERE task_id = $1 AND position > $2`,
+          [parsedTaskId, deletedPos]
+        );
+
+        return fetchAllStepsForTask(client, parsedTaskId);
+      });
+
+      await patchStepsInFirestore(parsedTeamId, parsedTaskId, allSteps);
+
+      logEndpointAudit({
+        operation: 'tasks.steps.delete',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+        taskId: parsedTaskId,
+      });
+      return res.json({ deletedStepId: parsedStepId });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'tasks.steps.delete',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        taskId,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task Recurring Rollover
+// ─────────────────────────────────────────────────────────────────────────────
+
+function addInterval(date: Date, interval: string, count: number): Date {
+  const next = new Date(date);
+  switch (interval) {
+    case 'days':
+      next.setDate(next.getDate() + count);
+      break;
+    case 'weeks':
+      next.setDate(next.getDate() + count * 7);
+      break;
+    case 'months':
+      next.setMonth(next.getMonth() + count);
+      break;
+    case 'years':
+      next.setFullYear(next.getFullYear() + count);
+      break;
+  }
+  return next;
+}
+
+api.post(
+  '/teams/:teamId/tasks/:taskId/rollover',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    let taskId: string | null = null;
+    try {
+      ({ teamId, taskId } = teamTaskParam.parse(req.params));
+      const parsedTeamId = teamId;
+      const parsedTaskId = taskId;
+      const authenticatedActorUid = getActorUid(req);
+      const { expectedDueDate } = req.body as { expectedDueDate: string };
+
+      const rolledOver = await withTransaction(async client => {
+        await assertUserBelongsToTeam(
+          client,
+          parsedTeamId,
+          authenticatedActorUid
+        );
+
+        const taskResult = await client.query(
+          `SELECT id, due_date, status, is_recurring, recurring_interval, recurring_count
+           FROM public.task
+           WHERE id = $1 AND team_id = $2
+           LIMIT 1`,
+          [parsedTaskId, parsedTeamId]
+        );
+
+        if (!taskResult.rowCount) {
+          const err = new EqupoError('Task not found');
+          err.status = ERROR_STATUS.NOT_FOUND;
+          throw err;
+        }
+
+        const t = taskResult.rows[0];
+        if (!t.is_recurring || !t.recurring_interval || !t.recurring_count)
+          return false;
+
+        const currentDue = new Date(t.due_date as string);
+        if (
+          currentDue.toISOString() !== new Date(expectedDueDate).toISOString()
+        )
+          return false;
+        if (currentDue.getTime() > Date.now()) return false;
+
+        const nextDue = addInterval(
+          currentDue,
+          t.recurring_interval as string,
+          t.recurring_count as number
+        );
+
+        if ((t.status as string) !== 'done') {
+          // Clone as a new non-recurring task with the missed due date
+          const copyResult = await client.query(
+            `SELECT name, description, priority, assigned_user_uid, assigned_group_id
+             FROM public.task WHERE id = $1 LIMIT 1`,
+            [parsedTaskId]
+          );
+          const src = copyResult.rows[0];
+
+          const newTask = await client.query(
+            `INSERT INTO public.task
+               (team_id, name, description, due_date, priority, status,
+                is_recurring, recurring_interval, recurring_count,
+                assigned_user_uid, assigned_group_id)
+             VALUES ($1, $2, $3, $4::timestamptz, $5, 'todo', false, NULL, NULL, $6, $7)
+             RETURNING id`,
+            [
+              parsedTeamId,
+              src.name,
+              src.description ?? '',
+              currentDue.toISOString(),
+              src.priority,
+              src.assigned_user_uid ?? null,
+              src.assigned_group_id ?? null,
+            ]
+          );
+
+          const newTaskId = newTask.rows[0].id as string;
+
+          // Copy steps (preserving isDone from the missed occurrence)
+          const stepsResult = await client.query(
+            `SELECT step_text, is_done, position FROM public.task_step
+             WHERE task_id = $1 ORDER BY position ASC`,
+            [parsedTaskId]
+          );
+          for (const step of stepsResult.rows) {
+            await client.query(
+              `INSERT INTO public.task_step (task_id, step_text, is_done, position, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, NOW(), NOW())`,
+              [newTaskId, step.step_text, step.is_done, step.position]
+            );
+          }
+
+          const now = new Date();
+          await upsertTaskInFirestore({
+            teamId: parsedTeamId,
+            taskId: newTaskId,
+            name: src.name as string,
+            description: (src.description as string | null) ?? '',
+            dueDate: currentDue,
+            priority: src.priority as string,
+            status: 'todo',
+            isRecurring: false,
+            recurringInterval: null,
+            recurringCount: null,
+            assignedUserId: (src.assigned_user_uid as string | null) ?? null,
+            assignedGroup: (src.assigned_group_id as string | null) ?? null,
+            category: [],
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+
+        // Advance recurring task: new due date, reset status, reset steps
+        await client.query(
+          `UPDATE public.task
+           SET due_date = $1::timestamptz, status = 'todo', updated_at = NOW()
+           WHERE id = $2`,
+          [nextDue.toISOString(), parsedTaskId]
+        );
+
+        await client.query(
+          `UPDATE public.task_step SET is_done = false, updated_at = NOW()
+           WHERE task_id = $1`,
+          [parsedTaskId]
+        );
+
+        // Sync recurring task dueDate + status back to Firestore
+        await patchTaskRolloverInFirestore(parsedTeamId, parsedTaskId, nextDue);
+
+        const updatedStepsResult = await client.query(
+          `SELECT step_text AS "step", is_done AS "isDone", position,
+                  created_at AS "createdAt", updated_at AS "updatedAt"
+           FROM public.task_step WHERE task_id = $1 ORDER BY position ASC`,
+          [parsedTaskId]
+        );
+        await patchStepsInFirestore(
+          parsedTeamId,
+          parsedTaskId,
+          updatedStepsResult.rows
+        );
+
+        return true;
+      });
+
+      logEndpointAudit({
+        operation: 'tasks.rollover',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+        taskId: parsedTaskId,
+      });
+      return res.json({ rolledOver });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'tasks.rollover',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        taskId,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task Commentaries
+// ─────────────────────────────────────────────────────────────────────────────
+
+api.get(
+  '/teams/:teamId/tasks/:taskId/commentaries',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    let taskId: string | null = null;
+    try {
+      ({ teamId, taskId } = teamTaskParam.parse(req.params));
+      const parsedTeamId = teamId;
+      const parsedTaskId = taskId;
+      const authenticatedActorUid = getActorUid(req);
+
+      const commentaries = await withTransaction(async client => {
+        await assertTeamMembership(client, parsedTeamId, authenticatedActorUid);
+
+        const taskCheck = await client.query(
+          `SELECT id FROM public.task WHERE id = $1 AND team_id = $2 LIMIT 1`,
+          [parsedTaskId, parsedTeamId]
+        );
+        if (!taskCheck.rowCount) {
+          const error = new EqupoError('Task not found');
+          error.status = ERROR_STATUS.NOT_FOUND;
+          throw error;
+        }
+
+        const result = await client.query(
+          `SELECT tc.task_id AS "taskId",
+                  tc.user_uid AS "userUid",
+                  u.display_name AS "displayName",
+                  tc.commentary,
+                  tc.created_at AS "createdAt",
+                  tc.updated_at AS "updatedAt"
+           FROM public.task_commentary tc
+           JOIN public."user" u ON u.uid = tc.user_uid
+           WHERE tc.task_id = $1
+           ORDER BY tc.created_at DESC`,
+          [parsedTaskId]
+        );
+        return result.rows;
+      });
+
+      logEndpointAudit({
+        operation: 'tasks.commentaries.list',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+        taskId: parsedTaskId,
+      });
+      return res.json({ commentaries });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'tasks.commentaries.list',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        taskId,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
+
+api.post(
+  '/teams/:teamId/tasks/:taskId/commentaries',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    let taskId: string | null = null;
+    try {
+      ({ teamId, taskId } = teamTaskParam.parse(req.params));
+      const parsedTeamId = teamId;
+      const parsedTaskId = taskId;
+      const input = assertBody(createTaskCommentarySchema, req.body);
+      const authenticatedActorUid = getActorUid(req);
+
+      const commentary = await withTransaction(async client => {
+        await assertTeamMembership(client, parsedTeamId, authenticatedActorUid);
+
+        const taskCheck = await client.query(
+          `SELECT id FROM public.task WHERE id = $1 AND team_id = $2 LIMIT 1`,
+          [parsedTaskId, parsedTeamId]
+        );
+        if (!taskCheck.rowCount) {
+          const error = new EqupoError('Task not found');
+          error.status = ERROR_STATUS.NOT_FOUND;
+          throw error;
+        }
+
+        const result = await client.query(
+          `INSERT INTO public.task_commentary (task_id, user_uid, commentary, created_at, updated_at)
+           VALUES ($1, $2, $3, NOW(), NOW())
+           RETURNING task_id AS "taskId", user_uid AS "userUid", commentary,
+                     created_at AS "createdAt", updated_at AS "updatedAt"`,
+          [parsedTaskId, authenticatedActorUid, input.commentary]
+        );
+
+        const row = result.rows[0];
+        const allCommentaries = await fetchAllCommentariesForTask(
+          client,
+          parsedTaskId
+        );
+        return {
+          commentary: row,
+          allCommentaries,
+        };
+      });
+
+      await patchCommentariesInFirestore(
+        parsedTeamId,
+        parsedTaskId,
+        commentary.allCommentaries
+      );
+
+      logEndpointAudit({
+        operation: 'tasks.commentaries.create',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+        taskId: parsedTaskId,
+      });
+      return res
+        .status(SUCCESS_STATUS.CREATED)
+        .json({ commentary: commentary.commentary });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'tasks.commentaries.create',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        taskId,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
+
+api.patch(
+  '/teams/:teamId/tasks/:taskId/commentaries/:commentaryId',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    let taskId: string | null = null;
+    try {
+      const parsedParams = taskCommentaryParam.parse(req.params);
+      teamId = parsedParams.teamId;
+      taskId = parsedParams.taskId;
+      const parsedTeamId = parsedParams.teamId;
+      const parsedTaskId = parsedParams.taskId;
+      const parsedCommentaryId = parsedParams.commentaryId;
+      const input = assertBody(updateTaskCommentarySchema, req.body);
+      const authenticatedActorUid = getActorUid(req);
+
+      const commentary = await withTransaction(async client => {
+        await assertTeamMembership(client, parsedTeamId, authenticatedActorUid);
+
+        const commentaryResult = await client.query(
+          `SELECT tc.user_uid
+           FROM public.task_commentary tc
+           JOIN public.task t ON t.id = tc.task_id
+           WHERE tc.commentary = $1 AND tc.task_id = $2 AND t.team_id = $3
+           LIMIT 1`,
+          [parsedCommentaryId, parsedTaskId, parsedTeamId]
+        );
+
+        if (!commentaryResult.rowCount) {
+          const error = new EqupoError('Commentary not found');
+          error.status = ERROR_STATUS.NOT_FOUND;
+          throw error;
+        }
+
+        if (commentaryResult.rows[0].user_uid !== authenticatedActorUid) {
+          const error = new EqupoError(
+            'You can only edit your own commentaries'
+          );
+          error.status = ERROR_STATUS.FORBIDDEN;
+          throw error;
+        }
+
+        const result = await client.query(
+          `UPDATE public.task_commentary
+           SET commentary = $1, updated_at = NOW()
+           WHERE commentary = $2 AND task_id = $3
+           RETURNING task_id AS "taskId", user_uid AS "userUid", commentary,
+                     created_at AS "createdAt", updated_at AS "updatedAt"`,
+          [input.commentary, parsedCommentaryId, parsedTaskId]
+        );
+
+        const row = result.rows[0];
+        const allCommentaries = await fetchAllCommentariesForTask(
+          client,
+          parsedTaskId
+        );
+        return {
+          commentary: row,
+          allCommentaries,
+        };
+      });
+
+      await patchCommentariesInFirestore(
+        parsedTeamId,
+        parsedTaskId,
+        commentary.allCommentaries
+      );
+
+      logEndpointAudit({
+        operation: 'tasks.commentaries.update',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+        taskId: parsedTaskId,
+      });
+      return res.json({ commentary: commentary.commentary });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'tasks.commentaries.update',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        taskId,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
+
+api.delete(
+  '/teams/:teamId/tasks/:taskId/commentaries/:commentaryId',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    let taskId: string | null = null;
+    try {
+      const parsedParams = taskCommentaryParam.parse(req.params);
+      teamId = parsedParams.teamId;
+      taskId = parsedParams.taskId;
+      const parsedTeamId = parsedParams.teamId;
+      const parsedTaskId = parsedParams.taskId;
+      const parsedCommentaryId = parsedParams.commentaryId;
+      const authenticatedActorUid = getActorUid(req);
+
+      const allCommentaries = await withTransaction(async client => {
+        await assertTeamMembership(client, parsedTeamId, authenticatedActorUid);
+
+        const commentaryResult = await client.query(
+          `SELECT tc.user_uid
+           FROM public.task_commentary tc
+           JOIN public.task t ON t.id = tc.task_id
+           WHERE tc.commentary = $1 AND tc.task_id = $2 AND t.team_id = $3
+           LIMIT 1`,
+          [parsedCommentaryId, parsedTaskId, parsedTeamId]
+        );
+
+        if (!commentaryResult.rowCount) {
+          const error = new EqupoError('Commentary not found');
+          error.status = ERROR_STATUS.NOT_FOUND;
+          throw error;
+        }
+
+        if (commentaryResult.rows[0].user_uid !== authenticatedActorUid) {
+          const error = new EqupoError(
+            'You can only delete your own commentaries'
+          );
+          error.status = ERROR_STATUS.FORBIDDEN;
+          throw error;
+        }
+
+        await client.query(
+          `DELETE FROM public.task_commentary WHERE commentary = $1 AND task_id = $2`,
+          [parsedCommentaryId, parsedTaskId]
+        );
+
+        return fetchAllCommentariesForTask(client, parsedTaskId);
+      });
+
+      await patchCommentariesInFirestore(
+        parsedTeamId,
+        parsedTaskId,
+        allCommentaries
+      );
+
+      logEndpointAudit({
+        operation: 'tasks.commentaries.delete',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+        taskId: parsedTaskId,
+      });
+      return res.json({ deletedCommentaryId: parsedCommentaryId });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'tasks.commentaries.delete',
         outcome: 'error',
         actorUid,
         teamId,

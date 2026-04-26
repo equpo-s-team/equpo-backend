@@ -10,13 +10,14 @@ export const createTaskSchema = z.object({
   description: z.string().max(2000).nullable(),
   dueDate: z.string().datetime(),
   priority: prioritySchema,
-  status: taskStatusSchema,
+  status: taskStatusSchema.optional(),
   categories: categoriesSchema.optional(),
   isRecurring: z.boolean().optional(),
   recurringInterval: recurringIntervalSchema.optional(),
   recurringCount: z.number().int().min(1).max(365).nullable().optional(),
   assignedUserUid: z.string().min(1).nullable().optional(),
   assignedGroupId: z.string().uuid().nullable().optional(),
+  steps: z.array(z.string().min(1).max(200)).min(1).max(14).optional(),
 });
 
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
