@@ -84,8 +84,5 @@ export async function patchCommentariesInFirestore(
       .slice(0, 20);
     map[key] = c;
   }
-  await taskDocumentRef(teamId, taskId).set(
-    { commentaries: map },
-    { merge: true }
-  );
+  await taskDocumentRef(teamId, taskId).update({ commentaries: map });
 }
