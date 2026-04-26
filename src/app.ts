@@ -24,7 +24,13 @@ import { assertGroupBelongsToTeam } from '#a/domains/task/guards/index.js';
 import {
   createAchievementSchema,
   unlockAchievementSchema,
+  checkAchievementsOnTaskComplete,
 } from '#a/domains/achievement/schemas/index.js';
+import {
+  XP_REWARDS,
+  COIN_REWARDS,
+  calculateLevel,
+} from '#a/domains/user/xpUtils.js';
 import { createSystemUserRewardSchema } from '#a/domains/reward/schemas/index.js';
 import {
   createTaskSchema,
@@ -1310,6 +1316,66 @@ api.post(
   }
 );
 
+api.get(
+  '/teams/:teamId/achievements',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    let teamId: string | null = null;
+    try {
+      ({ teamId } = teamIdParam.parse(req.params));
+      const parsedTeamId = teamId;
+      const authenticatedActorUid = getActorUid(req);
+
+      const achievements = await withTransaction(async client => {
+        await assertTeamMembership(client, parsedTeamId, authenticatedActorUid);
+
+        const result = await client.query(
+          `SELECT a.id,
+                  a.name,
+                  a.description,
+                  a.icon_u_r_l AS "iconUrl",
+                  ua.unlocked_at AS "unlockedAt"
+           FROM public.achievement a
+           LEFT JOIN public.user_achievement ua
+             ON ua.achievement_id = a.id AND ua.user_uid = $1
+           ORDER BY ua.unlocked_at DESC NULLS LAST, a.name ASC`,
+          [authenticatedActorUid]
+        );
+
+        return result.rows.map(row => ({
+          id: row.id as string,
+          name: row.name as string,
+          description: row.description as string | null,
+          iconUrl: (row.iconUrl as string | null) ?? null,
+          unlockedAt: row.unlockedAt
+            ? (row.unlockedAt as Date).toISOString()
+            : null,
+        }));
+      });
+
+      logEndpointAudit({
+        operation: 'teams.achievements.list',
+        outcome: 'success',
+        actorUid: authenticatedActorUid,
+        teamId: parsedTeamId,
+      });
+
+      return res.json({ achievements });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'teams.achievements.list',
+        outcome: 'error',
+        actorUid,
+        teamId,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
+
 api.post(
   '/teams/:teamId/tasks',
   requireUser,
@@ -1485,12 +1551,12 @@ api.patch(
           .status(ERROR_STATUS.VALIDATION)
           .json({ error: 'No fields to update' });
       }
-
+      let previousStatus: string | null = null;
       const task = await withTransaction(async client => {
         await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
 
         const taskResult = await client.query(
-          `SELECT id, due_date, status
+          `SELECT id, due_date, status, priority, assigned_user_uid, assigned_group_id
            FROM public.task
            WHERE id = $1 AND team_id = $2
            LIMIT 1`,
@@ -1504,6 +1570,7 @@ api.patch(
         }
 
         const existingTask = taskResult.rows[0];
+        previousStatus = existingTask.status as string;
         const isOverdue =
           existingTask.status !== 'done' &&
           new Date(existingTask.due_date) < new Date();
@@ -1620,6 +1687,99 @@ api.patch(
         };
       });
 
+      // ── XP, Coins & Achievements on task completion ─────────────────
+      let xpReward = null;
+      let unlockedAchievements: Array<{
+        id: string;
+        name: string;
+        description: string | null;
+        iconUrl: string | null;
+        unlockedAt: string;
+      }> = [];
+
+      const isTransitionToDone =
+        input.status === 'done' &&
+        previousStatus !== null &&
+        previousStatus !== 'done';
+
+      if (isTransitionToDone) {
+        const priority = (task.priority as string) ?? 'medium';
+        const xpAmount =
+          XP_REWARDS[priority as keyof typeof XP_REWARDS] ?? XP_REWARDS.medium;
+        const userCoinAmount =
+          (COIN_REWARDS[priority as keyof typeof COIN_REWARDS] ??
+            COIN_REWARDS.medium) / 2;
+
+        const teamCoinAmount =
+          COIN_REWARDS[priority as keyof typeof COIN_REWARDS] ??
+          COIN_REWARDS.medium;
+
+        const xpResult = await withTransaction(async client => {
+          const userResult = await client.query(
+            `UPDATE public."user"
+             SET experience_points = COALESCE(experience_points, 0) + $1,
+                 virtual_currency = COALESCE(virtual_currency, 0) + $3,
+                 updated_at = NOW()
+             WHERE uid = $2
+             RETURNING experience_points, level, virtual_currency`,
+            [xpAmount, authenticatedActorUid, userCoinAmount]
+          );
+
+          const newTotalXp = Number(userResult.rows[0]?.experience_points ?? 0);
+          const newLevel = calculateLevel(newTotalXp);
+          const oldLevel = Number(userResult.rows[0]?.level ?? 0);
+          const leveledUp = newLevel > oldLevel;
+
+          // Update level if changed
+          if (leveledUp) {
+            await client.query(
+              `UPDATE public."user"
+               SET level = $1, updated_at = NOW()
+               WHERE uid = $2`,
+              [newLevel, authenticatedActorUid]
+            );
+          }
+
+          // Grant coins to the team
+          await client.query(
+            `UPDATE public.team
+             SET virtual_currency = COALESCE(virtual_currency, 0) + $1,
+                 updated_at = NOW()
+             WHERE id = $2`,
+            [teamCoinAmount, parsedTeamId]
+          );
+
+          // Check achievements
+          const achievements = await checkAchievementsOnTaskComplete({
+            client,
+            userUid: authenticatedActorUid,
+            teamId: parsedTeamId,
+            taskId: parsedTaskId,
+            newLevel,
+            assignedUserUid: (task.assignedUserUid as string | null) ?? null,
+            assignedGroupId: (task.assignedGroupId as string | null) ?? null,
+          });
+
+          return {
+            xpGained: xpAmount,
+            coinsGained: teamCoinAmount,
+            newXp: newTotalXp,
+            newLevel,
+            leveledUp,
+            achievements,
+          };
+        });
+
+        xpReward = {
+          xpGained: xpResult.xpGained,
+          coinsGained: xpResult.coinsGained,
+          newXp: xpResult.newXp,
+          newLevel: xpResult.newLevel,
+          leveledUp: xpResult.leveledUp,
+        };
+        unlockedAchievements = xpResult.achievements;
+      }
+
       await upsertTaskInFirestore({
         taskId: task.id as string,
         teamId: task.teamId as string,
@@ -1646,7 +1806,13 @@ api.patch(
         taskId: parsedTaskId,
       });
 
-      return res.json({ task });
+      const response: Record<string, unknown> = { task };
+      if (xpReward) response.xpReward = xpReward;
+      if (unlockedAchievements.length > 0) {
+        response.unlockedAchievements = unlockedAchievements;
+      }
+
+      return res.json(response);
     } catch (error) {
       logEndpointAudit({
         operation: 'tasks.update',
@@ -2177,23 +2343,23 @@ api.get(
               );
             });
 
-          // Update Firestore directly
-          getFirestoreDb()
-            .collection(parsedTeamId)
-            .doc(pt.id)
-            .set(
-              {
-                dueDate: newDate,
-                updatedAt: newDate,
-              },
-              { merge: true }
-            )
-            .catch(error => {
-              winston.error(
-                `Failed to lazy update Firestore task ${pt.id}`,
-                error
-              );
-            });
+                    // Update Firestore directly
+                    getFirestoreDb()
+                        .collection(parsedTeamId)
+                        .doc(pt.id)
+                        .set(
+                            {
+                                dueDate: newDate,
+                                updatedAt: newDate,
+                            },
+                            {merge: true}
+                        )
+                        .catch(error => {
+                            winston.error(
+                                `Failed to lazy update Firestore task ${pt.id}`,
+                                error
+                            );
+                        });
 
           // Update the response so the user gets the fresh data
           pt.dueDate = newDate.toISOString();
@@ -2251,8 +2417,8 @@ api.get(
       const payload = await withTransaction(async client => {
         await assertTeamMembership(client, parsedTeamId, authenticatedActorUid);
 
-        const roleResult = await client.query(
-          `SELECT role
+                const roleResult = await client.query(
+                    `SELECT role
            FROM public.team_membership
            WHERE team_id = $1 AND user_uid = $2
            LIMIT 1`,
