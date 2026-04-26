@@ -2343,23 +2343,23 @@ api.get(
                             );
                         });
 
-          // Update Firestore directly
-          getFirestoreDb()
-            .collection(parsedTeamId)
-            .doc(pt.id)
-            .set(
-              {
-                dueDate: newDate,
-                updatedAt: newDate,
-              },
-              { merge: true }
-            )
-            .catch(error => {
-              winston.error(
-                `Failed to lazy update Firestore task ${pt.id}`,
-                error
-              );
-            });
+                    // Update Firestore directly
+                    getFirestoreDb()
+                        .collection(parsedTeamId)
+                        .doc(pt.id)
+                        .set(
+                            {
+                                dueDate: newDate,
+                                updatedAt: newDate,
+                            },
+                            {merge: true}
+                        )
+                        .catch(error => {
+                            winston.error(
+                                `Failed to lazy update Firestore task ${pt.id}`,
+                                error
+                            );
+                        });
 
                     // Update the response so the user gets the fresh data
                     pt.dueDate = newDate.toISOString();
@@ -2417,8 +2417,8 @@ api.get(
             const payload = await withTransaction(async client => {
                 await assertTeamMembership(client, parsedTeamId, authenticatedActorUid);
 
-        const roleResult = await client.query(
-          `SELECT role
+                const roleResult = await client.query(
+                    `SELECT role
            FROM public.team_membership
            WHERE team_id = $1 AND user_uid = $2
            LIMIT 1`,
