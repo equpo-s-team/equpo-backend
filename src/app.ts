@@ -313,13 +313,16 @@ async function getReportsMembers(
               rt.status,
               rt.assigned_user_uid AS user_uid
        FROM ranged_tasks rt
-       WHERE rt.assigned_user_uid IS NOT NULL
+       JOIN public.team_membership tm ON tm.user_uid = rt.assigned_user_uid AND tm.team_id = $1
+       WHERE rt.assigned_user_uid IS NOT NULL AND tm.role != 'spectator'
        UNION
        SELECT rt.id AS task_id,
               rt.status,
               gm.user_uid
        FROM ranged_tasks rt
        JOIN public.group_membership gm ON gm.group_id = rt.assigned_group_id
+       JOIN public.team_membership tm ON tm.user_uid = gm.user_uid AND tm.team_id = $1
+       WHERE tm.role != 'spectator'
      ),
      dedup_assigned AS (
        SELECT DISTINCT task_id, status, user_uid
@@ -387,11 +390,15 @@ async function getReportsOverdueTasks(
        SELECT ot.id AS task_id, u.uid, u.display_name
        FROM overdue_tasks ot
        JOIN public."user" u ON u.uid = ot.assigned_user_uid
+       JOIN public.team_membership tm ON tm.user_uid = u.uid AND tm.team_id = $1
+       WHERE tm.role != 'spectator'
        UNION
        SELECT ot.id AS task_id, u.uid, u.display_name
        FROM overdue_tasks ot
        JOIN public.group_membership gm ON gm.group_id = ot.assigned_group_id
        JOIN public."user" u ON u.uid = gm.user_uid
+       JOIN public.team_membership tm ON tm.user_uid = u.uid AND tm.team_id = $1
+       WHERE tm.role != 'spectator'
      ),
      assigned_agg AS (
        SELECT au.task_id,
@@ -1321,11 +1328,7 @@ api.post(
       const forcedStatus = 'todo';
 
       const task = await withTransaction(async client => {
-        await assertTeamPermission(
-          client,
-          parsedTeamId,
-          authenticatedActorUid
-        );
+        await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
         await assertTaskAssignmentsWithinTeam(
           client,
           parsedTeamId,
@@ -1484,11 +1487,7 @@ api.patch(
       }
 
       const task = await withTransaction(async client => {
-        await assertTeamPermission(
-          client,
-          parsedTeamId,
-          authenticatedActorUid
-        );
+        await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
 
         const taskResult = await client.query(
           `SELECT id, due_date, status
@@ -2096,11 +2095,15 @@ api.get(
            SELECT pt.id AS task_id, u.uid, u.display_name
            FROM paged_tasks pt
            JOIN public."user" u ON u.uid = pt.assigned_user_uid
+           JOIN public.team_membership tm ON tm.user_uid = u.uid AND tm.team_id = $1
+           WHERE tm.role != 'spectator'
            UNION
            SELECT pt.id AS task_id, u.uid, u.display_name
            FROM paged_tasks pt
            JOIN public.group_membership gm ON gm.group_id = pt.assigned_group_id
            JOIN public."user" u ON u.uid = gm.user_uid
+           JOIN public.team_membership tm ON tm.user_uid = u.uid AND tm.team_id = $1
+           WHERE tm.role != 'spectator'
          ),
          assigned_agg AS (
            SELECT au.task_id,
