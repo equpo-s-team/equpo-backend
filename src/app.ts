@@ -1321,7 +1321,7 @@ api.post(
       const forcedStatus = 'todo';
 
       const task = await withTransaction(async client => {
-        await assertUserBelongsToTeam(
+        await assertTeamPermission(
           client,
           parsedTeamId,
           authenticatedActorUid
@@ -1484,7 +1484,7 @@ api.patch(
       }
 
       const task = await withTransaction(async client => {
-        await assertUserBelongsToTeam(
+        await assertTeamPermission(
           client,
           parsedTeamId,
           authenticatedActorUid
