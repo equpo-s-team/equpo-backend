@@ -27,3 +27,11 @@ export const groupIdParam = z.object({
 });
 
 export type GroupIdParam = z.infer<typeof groupIdParam>;
+
+export const updateGroupSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  memberUids: z.array(z.string()).max(40).optional(),
+  photoUrl: z.string().url().optional(),
+});
+
+export type UpdateGroupBody = z.infer<typeof updateGroupSchema>;
