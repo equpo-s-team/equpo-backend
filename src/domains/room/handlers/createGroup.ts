@@ -139,4 +139,3 @@ export const createGroup: RequestHandler = async (req, res, next) => {
     return next(error);
   }
 };
-

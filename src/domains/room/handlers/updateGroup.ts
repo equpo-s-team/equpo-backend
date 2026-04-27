@@ -6,7 +6,10 @@ import {
   removeChatRoomMemberFromFirestore,
   updateChatRoomInFirestore,
 } from '#a/domains/room/firestore/index.js';
-import { groupIdParam, updateGroupSchema } from '#a/domains/room/schemas/index.js';
+import {
+  groupIdParam,
+  updateGroupSchema,
+} from '#a/domains/room/schemas/index.js';
 import { assertGroupBelongsToTeam } from '#a/domains/task/guards/index.js';
 import {
   assertTeamPermission,
@@ -29,14 +32,12 @@ export const updateGroup: RequestHandler = async (req, res, next) => {
     const membersToRemove: string[] = [];
 
     await withTransaction(async client => {
-      // Allow leaders and collaborators to edit
       await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
       await assertGroupBelongsToTeam(client, parsedTeamId, groupId);
 
-      // Update group details if provided
       if (input.name !== undefined || input.photoUrl !== undefined) {
         const updates: string[] = [];
-        const values: any[] = [];
+        const values: Array<string | null> = [];
         let index = 1;
 
         if (input.name !== undefined) {
@@ -70,7 +71,9 @@ export const updateGroup: RequestHandler = async (req, res, next) => {
           `SELECT user_uid FROM public.group_membership WHERE group_id = $1`,
           [groupId]
         );
-        const currentMembers = currentMembersResult.rows.map(r => r.user_uid as string);
+        const currentMembers = currentMembersResult.rows.map(
+          r => r.user_uid as string
+        );
 
         const newMembersSet = new Set(input.memberUids);
         const currentMembersSet = new Set(currentMembers);
@@ -126,7 +129,9 @@ export const updateGroup: RequestHandler = async (req, res, next) => {
     if (input.name !== undefined || input.photoUrl !== undefined) {
       await updateChatRoomInFirestore(parsedTeamId, groupId, {
         ...(input.name !== undefined && { name: input.name }),
-        ...(input.photoUrl !== undefined && { photoUrl: input.photoUrl ?? undefined }),
+        ...(input.photoUrl !== undefined && {
+          photoUrl: input.photoUrl ?? undefined,
+        }),
       });
       await insertSystemMessage(
         parsedTeamId,
@@ -138,12 +143,13 @@ export const updateGroup: RequestHandler = async (req, res, next) => {
     if (membersToRemove.length > 0) {
       for (const uid of membersToRemove) {
         await removeChatRoomMemberFromFirestore(parsedTeamId, groupId, uid);
-        
+
         const userResult = await pool.query(
           `SELECT display_name FROM public."user" WHERE uid = $1 LIMIT 1`,
           [uid]
         );
-        const displayName = (userResult.rows[0]?.display_name as string | null) ?? uid;
+        const displayName =
+          (userResult.rows[0]?.display_name as string | null) ?? uid;
         await insertSystemMessage(
           parsedTeamId,
           groupId,
@@ -154,13 +160,19 @@ export const updateGroup: RequestHandler = async (req, res, next) => {
 
     if (membersToAdd.length > 0) {
       for (const uid of membersToAdd) {
-        await addChatRoomMemberInFirestore(parsedTeamId, groupId, uid, 'member');
-        
+        await addChatRoomMemberInFirestore(
+          parsedTeamId,
+          groupId,
+          uid,
+          'member'
+        );
+
         const userResult = await pool.query(
           `SELECT display_name FROM public."user" WHERE uid = $1 LIMIT 1`,
           [uid]
         );
-        const displayName = (userResult.rows[0]?.display_name as string | null) ?? uid;
+        const displayName =
+          (userResult.rows[0]?.display_name as string | null) ?? uid;
         await insertSystemMessage(
           parsedTeamId,
           groupId,
