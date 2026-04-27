@@ -7,8 +7,10 @@ import { createTeamReward } from '#a/domains/reward/handlers/createTeamReward.js
 import { grantSystemReward } from '#a/domains/reward/handlers/grantSystemReward.js';
 import { addGroupMembers } from '#a/domains/room/handlers/addGroupMembers.js';
 import { createGroup } from '#a/domains/room/handlers/createGroup.js';
+import { deleteGroup } from '#a/domains/room/handlers/deleteGroup.js';
 import { generateZegoTokenEndpoint } from '#a/domains/room/handlers/generateZegoTokenEndpoint.js';
 import { getGroups } from '#a/domains/room/handlers/getGroups.js';
+import { updateGroup } from '#a/domains/room/handlers/updateGroup.js';
 import { createTask } from '#a/domains/task/handlers/createTask.js';
 import { createTaskCommentary } from '#a/domains/task/handlers/createTaskCommentary.js';
 import { createTaskStep } from '#a/domains/task/handlers/createTaskStep.js';
@@ -158,6 +160,20 @@ api.post(
   requireUser,
   userRateLimit,
   addGroupMembers
+);
+
+api.patch(
+  '/teams/:teamId/groups/:groupId',
+  requireUser,
+  userRateLimit,
+  updateGroup
+);
+
+api.delete(
+  '/teams/:teamId/groups/:groupId',
+  requireUser,
+  userRateLimit,
+  deleteGroup
 );
 
 api.post(
