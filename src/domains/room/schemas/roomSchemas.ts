@@ -10,6 +10,7 @@ export type ZegoTokenParam = z.infer<typeof zegoTokenParam>;
 export const createGroupSchema = z.object({
   name: z.string().min(1).max(100),
   memberUids: z.array(z.string()).max(40).optional(),
+  photoUrl: z.string().url().optional(),
 });
 
 export type CreateGroupBody = z.infer<typeof createGroupSchema>;

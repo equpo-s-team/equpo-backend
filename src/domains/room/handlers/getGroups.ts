@@ -17,16 +17,29 @@ export const getGroups: RequestHandler = async (req, res, next) => {
 
       const result = await client.query(
         `SELECT g.id,
-                  g.group_name   AS "groupName",
-                  g.photo_u_r_l  AS "photoUrl",
-                  (SELECT COUNT(*)::int FROM public.group_membership gm2 WHERE gm2.group_id = g.id) AS "memberCount"
-           FROM public."group" g
-           WHERE g.team_id = $1
-             AND (
-               EXISTS (SELECT 1 FROM public.group_membership gm WHERE gm.group_id = g.id AND gm.user_uid = $2)
-               OR EXISTS (SELECT 1 FROM public.team t WHERE t.id = $1 AND t.leader_uid = $2)
-             )
-           ORDER BY g.group_name ASC`,
+                g.group_name   AS "groupName",
+                g.photo_u_r_l  AS "photoUrl",
+                (SELECT COUNT(*)::int FROM public.group_membership gm2 WHERE gm2.group_id = g.id) AS "memberCount",
+                COALESCE(
+                  json_agg(
+                    json_build_object(
+                      'uid', gm_u.uid,
+                      'displayName', gm_u.display_name,
+                      'photoUrl', gm_u.photo_u_r_l
+                    )
+                  ) FILTER (WHERE gm_u.uid IS NOT NULL),
+                  '[]'
+                ) AS members
+         FROM public."group" g
+         LEFT JOIN public.group_membership gm ON gm.group_id = g.id
+         LEFT JOIN public."user" gm_u ON gm_u.uid = gm.user_uid
+         WHERE g.team_id = $1
+           AND (
+             EXISTS (SELECT 1 FROM public.group_membership gm3 WHERE gm3.group_id = g.id AND gm3.user_uid = $2)
+             OR EXISTS (SELECT 1 FROM public.team t WHERE t.id = $1 AND t.leader_uid = $2)
+           )
+         GROUP BY g.id
+         ORDER BY g.group_name ASC`,
         [parsedTeamId, authenticatedActorUid]
       );
 
@@ -52,3 +65,4 @@ export const getGroups: RequestHandler = async (req, res, next) => {
     return next(error);
   }
 };
+
