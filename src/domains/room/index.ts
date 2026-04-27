@@ -1,15 +1,15 @@
 export {
-  zegoTokenParam,
-  createGroupSchema,
   addGroupMembersSchema,
+  createGroupSchema,
   groupIdParam,
+  zegoTokenParam,
 } from './schemas/index.js';
 
 export type {
-  ZegoTokenParam,
-  CreateGroupBody,
   AddGroupMembersBody,
+  CreateGroupBody,
   GroupIdParam,
+  ZegoTokenParam,
 } from './schemas/index.js';
 
 export { generateZegoToken } from './zegoToken.js';

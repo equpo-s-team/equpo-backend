@@ -1,7 +1,7 @@
-import { TEAM_ALLOWED_ROLES } from '../schemas/constants.js';
 import { ERROR_STATUS } from '#a/constants/httpStatusCodes.js';
 import { EqupoError } from '#a/types/EqupoError.js';
 import { PoolClient } from 'pg';
+import { TEAM_ALLOWED_ROLES } from '../schemas/constants.js';
 import {
   assertTeamMembership,
   type TeamMembershipResult,

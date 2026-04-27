@@ -1,7 +1,7 @@
-import { NextFunction, RequestHandler, Request, Response } from 'express';
-import winston from 'winston';
 import { ERROR_STATUS } from '#a/constants/httpStatusCodes.js';
 import { getFirebaseAuth } from '#a/firebaseAdmin.js';
+import { NextFunction, Request, RequestHandler, Response } from 'express';
+import winston from 'winston';
 
 export const requireUser: RequestHandler = async (
   req: Request,

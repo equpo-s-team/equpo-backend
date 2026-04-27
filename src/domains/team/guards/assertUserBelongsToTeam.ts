@@ -1,5 +1,5 @@
-import { EqupoError } from '#a/types/EqupoError.js';
 import { ERROR_STATUS } from '#a/constants/httpStatusCodes.js';
+import { EqupoError } from '#a/types/EqupoError.js';
 import { PoolClient } from 'pg';
 
 export async function assertUserBelongsToTeam(
