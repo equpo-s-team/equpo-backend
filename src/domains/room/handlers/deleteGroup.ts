@@ -21,19 +21,18 @@ export const deleteGroup: RequestHandler = async (req, res, next) => {
       await assertGroupBelongsToTeam(client, parsedTeamId, groupId);
 
       // Delete group memberships first
-      await client.query(
-        `DELETE FROM public.group_membership WHERE group_id = $1`,
-        [groupId]
-      );
+      await client.query(`DELETE FROM public.group_membership WHERE group_id = $1`, [
+        groupId,
+      ]);
 
       // Delete the group itself
-      await client.query(
-        `DELETE FROM public."group" WHERE id = $1 AND team_id = $2`,
-        [groupId, parsedTeamId]
-      );
-
+      await client.query(`DELETE FROM public."group" WHERE id = $1 AND team_id = $2`, [
+        groupId,
+        parsedTeamId,
+      ]);
+      
       // Note: we are currently not nullifying task assignments that point to this group.
-      // If task.assigned_group_id references public."group"(id) ON DELETE SET NULL,
+      // If task.assigned_group_id references public."group"(id) ON DELETE SET NULL, 
       // the DB constraint will handle it.
     });
 

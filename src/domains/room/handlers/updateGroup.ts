@@ -95,6 +95,16 @@ export const updateGroup: RequestHandler = async (req, res, next) => {
         // Validate new members
         for (const uid of membersToAdd) {
           await assertUserBelongsToTeam(client, parsedTeamId, uid);
+          const roleResult = await client.query(
+            `SELECT role FROM public.team_membership WHERE team_id = $1 AND user_uid = $2 LIMIT 1`,
+            [parsedTeamId, uid]
+          );
+          if (roleResult.rows[0]?.role === 'spectator') {
+            throw new EqupoError(
+              'Spectators cannot be added to work groups',
+              ERROR_STATUS.VALIDATION
+            );
+          }
         }
 
         // Apply removals
@@ -124,6 +134,7 @@ export const updateGroup: RequestHandler = async (req, res, next) => {
         ...(input.photoUrl !== undefined && {
           photoUrl: input.photoUrl ?? undefined,
         }),
+        ...(input.photoUrl !== undefined && { photoUrl: input.photoUrl ?? undefined }),
       });
       await insertSystemMessage(
         parsedTeamId,
