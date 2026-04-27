@@ -32,11 +32,9 @@ export const updateGroup: RequestHandler = async (req, res, next) => {
     const membersToRemove: string[] = [];
 
     await withTransaction(async client => {
-      // Allow leaders and collaborators to edit
       await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
       await assertGroupBelongsToTeam(client, parsedTeamId, groupId);
 
-      // Update group details if provided
       if (input.name !== undefined || input.photoUrl !== undefined) {
         const updates: string[] = [];
         const values: Array<string | null> = [];
