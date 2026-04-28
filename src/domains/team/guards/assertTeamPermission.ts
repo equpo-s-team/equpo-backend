@@ -1,4 +1,3 @@
-import { TEAM_ALLOWED_ROLES } from '../schemas/constants.js';
 import { ERROR_STATUS } from '#a/constants/httpStatusCodes.js';
 import { EqupoError } from '#a/types/EqupoError.js';
 import { PoolClient } from 'pg';
@@ -29,14 +28,10 @@ export async function assertTeamPermission(
     return membership;
   }
 
-  if (
-    !TEAM_ALLOWED_ROLES.has(
-      membership.role as typeof TEAM_ALLOWED_ROLES extends Set<infer T>
-        ? T
-        : never
-    )
-  ) {
-    const error = new EqupoError('Forbidden: insufficient role');
+  if (membership.role === 'spectator') {
+    const error = new EqupoError(
+      'Forbidden: spectators cannot perform this action'
+    );
     error.status = ERROR_STATUS.FORBIDDEN;
     throw error;
   }

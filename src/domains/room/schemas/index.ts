@@ -1,13 +1,15 @@
 export {
-  zegoTokenParam,
-  createGroupSchema,
   addGroupMembersSchema,
+  createGroupSchema,
   groupIdParam,
+  updateGroupSchema,
+  zegoTokenParam,
 } from './roomSchemas.js';
 
 export type {
-  ZegoTokenParam,
-  CreateGroupBody,
   AddGroupMembersBody,
+  CreateGroupBody,
   GroupIdParam,
+  UpdateGroupBody,
+  ZegoTokenParam,
 } from './roomSchemas.js';

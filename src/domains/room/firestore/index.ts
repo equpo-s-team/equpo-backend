@@ -1,6 +1,8 @@
 export {
-  createChatRoomInFirestore,
   addChatRoomMemberInFirestore,
-  removeChatRoomMemberFromFirestore,
+  createChatRoomInFirestore,
+  deleteChatRoomFromFirestore,
   insertSystemMessage,
+  removeChatRoomMemberFromFirestore,
+  updateChatRoomInFirestore,
 } from './roomFirestore.js';

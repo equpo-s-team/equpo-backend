@@ -97,3 +97,48 @@ export async function insertSystemMessage(
       deleted: false,
     });
 }
+
+/**
+ * Updates a chatRoom document in Firestore.
+ */
+export async function updateChatRoomInFirestore(
+  teamId: string,
+  groupId: string,
+  data: { name?: string; photoUrl?: string }
+): Promise<void> {
+  const db = getFirestoreDb();
+  await db
+    .collection('teams')
+    .doc(teamId)
+    .collection('chatRooms')
+    .doc(groupId)
+    .set(data, { merge: true });
+}
+
+/**
+ * Deletes a chatRoom document and its subcollections (members, messages) from Firestore.
+ */
+export async function deleteChatRoomFromFirestore(
+  teamId: string,
+  groupId: string
+): Promise<void> {
+  const db = getFirestoreDb();
+  const roomRef = db
+    .collection('teams')
+    .doc(teamId)
+    .collection('chatRooms')
+    .doc(groupId);
+
+  // Delete room members
+  const membersSnapshot = await roomRef.collection('members').get();
+  const memberDeletes = membersSnapshot.docs.map(d => d.ref.delete());
+  await Promise.all(memberDeletes);
+
+  // Delete room messages
+  const messagesSnapshot = await roomRef.collection('messages').get();
+  const messageDeletes = messagesSnapshot.docs.map(d => d.ref.delete());
+  await Promise.all(messageDeletes);
+
+  // Delete the chatRoom doc itself
+  await roomRef.delete();
+}
