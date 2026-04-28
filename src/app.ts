@@ -37,7 +37,11 @@ import { updateTeamMemberRole } from '#a/domains/team/handlers/updateTeamMemberR
 import { mirrorAvatar } from '#a/domains/user/handlers/mirrorAvatar.js';
 import { requireSystem } from '#a/systemAuth.js';
 import { EqupoError } from '#a/types/EqupoError.js';
-import { createUserRateLimitMiddleware } from '#a/utils/index.js';
+import {
+  assertBody,
+  createUserRateLimitMiddleware,
+  logEndpointAudit,
+} from '#a/utils/index.js';
 import cors from 'cors';
 import express, {
   Application,
@@ -280,6 +284,76 @@ api.get(
 );
 
 api.post('/internal/users/:userUid/rewards', requireSystem, grantSystemReward);
+
+api.post(
+  '/ai/generate-description',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    try {
+      const { generateDescriptionSchema } =
+        await import('#a/domains/ai/schemas/index.js');
+      const { generateDescriptionWithGroq } =
+        await import('#a/domains/ai/groqClient.js');
+
+      const { description } = assertBody(generateDescriptionSchema, req.body);
+
+      const content = await generateDescriptionWithGroq(description as string);
+
+      logEndpointAudit({
+        operation: 'ai.generateDescription',
+        outcome: 'success',
+        actorUid,
+      });
+
+      return res.json({ content });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'ai.generateDescription',
+        outcome: 'error',
+        actorUid,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
+
+api.post(
+  '/ai/generate-description',
+  requireUser,
+  userRateLimit,
+  async (req, res, next) => {
+    const actorUid = req.user?.uid ?? null;
+    try {
+      const { generateDescriptionSchema } =
+        await import('#a/domains/ai/schemas/index.js');
+      const { generateDescriptionWithGroq } =
+        await import('#a/domains/ai/groqClient.js');
+
+      const { description } = assertBody(generateDescriptionSchema, req.body);
+
+      const content = await generateDescriptionWithGroq(description as string);
+
+      logEndpointAudit({
+        operation: 'ai.generateDescription',
+        outcome: 'success',
+        actorUid,
+      });
+
+      return res.json({ content });
+    } catch (error) {
+      logEndpointAudit({
+        operation: 'ai.generateDescription',
+        outcome: 'error',
+        actorUid,
+        error,
+      });
+      return next(error);
+    }
+  }
+);
 
 app.use(config.apiPrefix, api);
 

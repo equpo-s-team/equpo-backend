@@ -6,3 +6,4 @@ export * as taskSchemas from './task/schemas/index.js';
 export * as teamGuards from './team/guards/index.js';
 export * as teamSchemas from './team/schemas/index.js';
 export * as userXp from './user/xpUtils.js';
+export * as aiSchemas from './ai/schemas/index.js';
