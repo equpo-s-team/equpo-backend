@@ -37,7 +37,11 @@ import { updateTeamMemberRole } from '#a/domains/team/handlers/updateTeamMemberR
 import { mirrorAvatar } from '#a/domains/user/handlers/mirrorAvatar.js';
 import { requireSystem } from '#a/systemAuth.js';
 import { EqupoError } from '#a/types/EqupoError.js';
-import { createUserRateLimitMiddleware } from '#a/utils/index.js';
+import {
+  assertBody,
+  createUserRateLimitMiddleware,
+  logEndpointAudit,
+} from '#a/utils/index.js';
 import cors from 'cors';
 import express, {
   Application,
