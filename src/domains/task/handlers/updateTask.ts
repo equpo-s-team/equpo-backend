@@ -251,7 +251,9 @@ export const updateTask: RequestHandler = async (req, res, next) => {
           userCoinsGained: userCoinAmount,
           newXp: newTotalXp,
           newLevel,
-          newUserVirtualCurrency: Number(userResult.rows[0]?.virtual_currency ?? 0),
+          newUserVirtualCurrency: Number(
+            userResult.rows[0]?.virtual_currency ?? 0
+          ),
           leveledUp,
           achievements,
         };
