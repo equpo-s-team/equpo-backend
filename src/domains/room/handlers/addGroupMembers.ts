@@ -43,6 +43,7 @@ export const addGroupMembers: RequestHandler = async (req, res, next) => {
 
       for (const uid of input.memberUids) {
         await assertUserBelongsToTeam(client, parsedTeamId, uid);
+
         await client.query(
           `INSERT INTO public.group_membership (group_id, user_uid) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
           [groupId, uid]

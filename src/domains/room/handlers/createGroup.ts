@@ -12,6 +12,7 @@ import {
 } from '#a/domains/team/guards/index.js';
 import { teamIdParam } from '#a/domains/team/schemas/index.js';
 import { assertBody, getActorUid, logEndpointAudit } from '#a/utils/index.js';
+import { getFirestoreDb } from '#a/firebaseAdmin.js';
 import { RequestHandler } from 'express';
 
 export const createGroup: RequestHandler = async (req, res, next) => {
@@ -27,13 +28,16 @@ export const createGroup: RequestHandler = async (req, res, next) => {
       await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
 
       const memberUids = input.memberUids ?? [];
+
       for (const uid of memberUids) {
         await assertUserBelongsToTeam(client, parsedTeamId, uid);
       }
 
       const groupResult = await client.query(
-        `INSERT INTO public."group" (team_id, group_name) VALUES ($1, $2) RETURNING id, group_name AS "groupName"`,
-        [parsedTeamId, input.name]
+        `INSERT INTO public."group" (team_id, group_name, photo_u_r_l)
+         VALUES ($1, $2, $3)
+         RETURNING id, group_name AS "groupName", photo_u_r_l AS "photoUrl"`,
+        [parsedTeamId, input.name, input.photoUrl ?? null]
       );
       const createdGroup = groupResult.rows[0];
 
@@ -60,6 +64,18 @@ export const createGroup: RequestHandler = async (req, res, next) => {
       input.name,
       authenticatedActorUid
     );
+
+    // Persist photoUrl on the Firestore chatRoom document
+    if (input.photoUrl) {
+      const db = getFirestoreDb();
+      await db
+        .collection('teams')
+        .doc(parsedTeamId)
+        .collection('chatRooms')
+        .doc(group.id as string)
+        .update({ photoUrl: input.photoUrl });
+    }
+
     await addChatRoomMemberInFirestore(
       parsedTeamId,
       group.id as string,

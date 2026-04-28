@@ -248,8 +248,12 @@ export const updateTask: RequestHandler = async (req, res, next) => {
         return {
           xpGained: xpAmount,
           coinsGained: teamCoinAmount,
+          userCoinsGained: userCoinAmount,
           newXp: newTotalXp,
           newLevel,
+          newUserVirtualCurrency: Number(
+            userResult.rows[0]?.virtual_currency ?? 0
+          ),
           leveledUp,
           achievements,
         };
@@ -258,8 +262,10 @@ export const updateTask: RequestHandler = async (req, res, next) => {
       xpReward = {
         xpGained: xpResult.xpGained,
         coinsGained: xpResult.coinsGained,
+        userCoinsGained: xpResult.userCoinsGained,
         newXp: xpResult.newXp,
         newLevel: xpResult.newLevel,
+        newUserVirtualCurrency: xpResult.newUserVirtualCurrency,
         leveledUp: xpResult.leveledUp,
       };
       unlockedAchievements = xpResult.achievements;
