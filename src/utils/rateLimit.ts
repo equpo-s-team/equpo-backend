@@ -1,6 +1,6 @@
+import { ERROR_STATUS } from '#a/constants/httpStatusCodes.js';
 import { NextFunction, Request, RequestHandler, Response } from 'express';
 import winston from 'winston';
-import { ERROR_STATUS } from '#a/constants/httpStatusCodes.js';
 
 export type UserRateLimitOptions = {
   windowMs: number;

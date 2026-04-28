@@ -1,6 +1,6 @@
-import { type ZodError, type ZodType, type ZodTypeDef } from 'zod';
-import { EqupoError } from '#a/types/EqupoError.js';
 import { ERROR_STATUS } from '#a/constants/httpStatusCodes.js';
+import { EqupoError } from '#a/types/EqupoError.js';
+import { type ZodError, type ZodType, type ZodTypeDef } from 'zod';
 
 export function assertBody<T extends ZodType<unknown, ZodTypeDef, unknown>>(
   schema: T,

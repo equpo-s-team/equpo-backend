@@ -1,6 +1,6 @@
 import { config } from '#a/config.js';
-import { Request, Response, NextFunction } from 'express';
 import { ERROR_STATUS } from '#a/constants/httpStatusCodes.js';
+import { NextFunction, Request, Response } from 'express';
 
 export function requireSystem(req: Request, res: Response, next: NextFunction) {
   const key = req.headers['x-system-key'];

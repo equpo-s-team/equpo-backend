@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
-import { Pool } from 'pg';
-import { getFirebaseAdmin, getFirestoreDb } from '#a/firebaseAdmin.js';
 import { config } from '#a/config.js';
+import { getFirebaseAdmin, getFirestoreDb } from '#a/firebaseAdmin.js';
+import { Pool } from 'pg';
 
 async function run() {
   const admin = getFirebaseAdmin();

@@ -1,19 +1,19 @@
+export {
+  deleteCommentaryFromFirestore,
+  updateCommentaryInFirestore,
+  upsertCommentaryInFirestore,
+} from './commentaryFirestoreSync.js';
 export { buildTaskFirestoreDocument } from './taskFirestoreMapper.js';
 export type { TaskFirestoreSyncInput } from './taskFirestoreMapper.js';
 export {
-  upsertTaskInFirestore,
-  patchTaskStatusInFirestore,
-  patchTaskRolloverInFirestore,
   deleteTaskFromFirestore,
-  patchStepsInFirestore,
   patchCommentariesInFirestore,
+  patchStepsInFirestore,
+  patchTaskRolloverInFirestore,
+  patchTaskStatusInFirestore,
+  upsertTaskInFirestore,
 } from './taskFirestoreSync.js';
 export type {
-  StepFirestoreDoc,
   CommentaryFirestoreDoc,
+  StepFirestoreDoc,
 } from './taskFirestoreSync.js';
-export {
-  upsertCommentaryInFirestore,
-  updateCommentaryInFirestore,
-  deleteCommentaryFromFirestore,
-} from './commentaryFirestoreSync.js';

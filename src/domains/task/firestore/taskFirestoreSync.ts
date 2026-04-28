@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 
 import { getFirestoreDb } from '#a/firebaseAdmin.js';
-import { buildTaskFirestoreDocument } from './taskFirestoreMapper.js';
 import type { TaskFirestoreSyncInput } from './taskFirestoreMapper.js';
+import { buildTaskFirestoreDocument } from './taskFirestoreMapper.js';
 
 export type StepFirestoreDoc = {
   step: string;
