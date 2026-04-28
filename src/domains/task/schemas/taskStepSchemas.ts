@@ -15,7 +15,7 @@ export const updateTaskStepSchema = z.object({
 export const taskStepParam = z.object({
   teamId: z.string().uuid(),
   taskId: z.string().uuid(),
-  stepId: z.string().min(1).max(200),
+  stepId: z.string().trim().min(1).max(200),
 });
 
 export type CreateTaskStepInput = z.infer<typeof createTaskStepSchema>;
