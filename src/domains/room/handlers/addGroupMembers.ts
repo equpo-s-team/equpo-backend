@@ -44,18 +44,6 @@ export const addGroupMembers: RequestHandler = async (req, res, next) => {
       for (const uid of input.memberUids) {
         await assertUserBelongsToTeam(client, parsedTeamId, uid);
 
-        // Reject spectators from work groups
-        const roleResult = await client.query(
-          `SELECT role FROM public.team_membership WHERE team_id = $1 AND user_uid = $2 LIMIT 1`,
-          [parsedTeamId, uid]
-        );
-        if (roleResult.rows[0]?.role === 'spectator') {
-          throw new EqupoError(
-            'Spectators cannot be added to work groups',
-            ERROR_STATUS.VALIDATION
-          );
-        }
-
         await client.query(
           `INSERT INTO public.group_membership (group_id, user_uid) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
           [groupId, uid]
