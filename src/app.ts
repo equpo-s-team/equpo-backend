@@ -33,6 +33,7 @@ import { deleteTeam } from '#a/domains/team/handlers/deleteTeam.js';
 import { getMyTeams } from '#a/domains/team/handlers/getMyTeams.js';
 import { getTeamMembers } from '#a/domains/team/handlers/getTeamMembers.js';
 import { inviteTeamMember } from '#a/domains/team/handlers/inviteTeamMember.js';
+import { joinTeamWithInviteCode } from '#a/domains/team/handlers/joinTeamWithInviteCode.js';
 import { removeTeamMember } from '#a/domains/team/handlers/removeTeamMember.js';
 import { updateTeam } from '#a/domains/team/handlers/updateTeam.js';
 import { updateTeamMemberRole } from '#a/domains/team/handlers/updateTeamMemberRole.js';
@@ -84,6 +85,9 @@ api.get('/teams/me', requireUser, getMyTeams);
 api.post('/users/me/avatar/mirror', requireUser, userRateLimit, mirrorAvatar);
 
 api.post('/teams', requireUser, userRateLimit, createTeam);
+
+// ── POST /teams/join ── Join a team using an invitation code ────────────────
+api.post('/teams/join', requireUser, userRateLimit, joinTeamWithInviteCode);
 
 api.patch('/teams/:teamId', requireUser, userRateLimit, updateTeam);
 

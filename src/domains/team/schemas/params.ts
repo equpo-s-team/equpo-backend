@@ -31,3 +31,7 @@ export const updateTeamMemberRoleSchema = z.object({
 export const mirrorMyAvatarSchema = z.object({
   sourceUrl: z.string().url(),
 });
+
+export const joinTeamWithInviteCodeSchema = z.object({
+  code: z.string().min(1),
+});
