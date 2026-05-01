@@ -62,7 +62,9 @@ export const getTeamInvitePreview: RequestHandler = async (req, res, next) => {
 
     // Verificar que el teamId esté presente
     if (!teamId) {
-      const error = new EqupoError('Invalid invitation code: missing team data');
+      const error = new EqupoError(
+        'Invalid invitation code: missing team data'
+      );
       error.status = ERROR_STATUS.SERVER_ERROR;
       throw error;
     }
@@ -80,7 +82,9 @@ export const getTeamInvitePreview: RequestHandler = async (req, res, next) => {
     if (isExpired || !hasUsesLeft) {
       await invitationDoc.ref.delete();
       const error = new EqupoError(
-        isExpired ? 'Invitation code has expired' : 'Invitation code has reached maximum uses'
+        isExpired
+          ? 'Invitation code has expired'
+          : 'Invitation code has reached maximum uses'
       );
       error.status = ERROR_STATUS.FORBIDDEN;
       throw error;

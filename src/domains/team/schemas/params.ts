@@ -41,7 +41,10 @@ export const invitePreviewQuerySchema = z.object({
 });
 
 export const createInvitationCodeSchema = z.object({
-  role: z.enum(['collaborator', 'spectator', 'member']).optional().default('member'),
+  role: z
+    .enum(['collaborator', 'spectator', 'member'])
+    .optional()
+    .default('member'),
   expiresInHours: z.number().int().min(1).max(720).optional().default(24),
   maxUses: z.number().int().min(1).max(1000).optional().default(10),
 });
