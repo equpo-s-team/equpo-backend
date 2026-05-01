@@ -10,7 +10,7 @@ import { getFirestoreDb } from '#a/firebaseAdmin.js';
 import { EqupoError } from '#a/types/EqupoError.js';
 import { assertBody, getActorUid, logEndpointAudit } from '#a/utils/index.js';
 import { RequestHandler } from 'express';
-import { FirebaseFirestore } from '@google-cloud/firestore';
+import admin from 'firebase-admin';
 
 interface InvitationCodeData {
   code: string;
@@ -43,7 +43,7 @@ function generateInviteCode(): string {
  * Ensures the generated code is unique in Firestore
  */
 async function generateUniqueCode(
-  db: FirebaseFirestore.Firestore,
+  db: admin.firestore.Firestore,
   teamId: string
 ): Promise<string> {
   let attempts = 0;

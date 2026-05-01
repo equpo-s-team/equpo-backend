@@ -40,6 +40,7 @@ import { removeTeamMember } from '#a/domains/team/handlers/removeTeamMember.js';
 import { updateTeam } from '#a/domains/team/handlers/updateTeam.js';
 import { updateTeamMemberRole } from '#a/domains/team/handlers/updateTeamMemberRole.js';
 import { mirrorAvatar } from '#a/domains/user/handlers/mirrorAvatar.js';
+import { getUserPreview } from '#a/domains/user/handlers/getUserPreview.js';
 import { generateDescriptionHandler } from '#a/domains/ai/handlers/generateDescription.js';
 import { requireSystem } from '#a/systemAuth.js';
 import { EqupoError } from '#a/types/EqupoError.js';
@@ -93,6 +94,9 @@ api.get(
 );
 
 api.post('/users/me/avatar/mirror', requireUser, userRateLimit, mirrorAvatar);
+
+// ── GET /users/preview ── Preview user info by UID ───────────────────────────
+api.get('/users/preview', requireUser, userRateLimit, getUserPreview);
 
 api.post('/teams', requireUser, userRateLimit, createTeam);
 
