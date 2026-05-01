@@ -3,6 +3,7 @@ export { createTeamRewardSchema } from './createTeamRewardSchema.js';
 export { createTeamSchema } from './createTeamSchema.js';
 export {
   inviteTeamMemberSchema,
+  joinTeamWithInviteCodeSchema,
   mirrorMyAvatarSchema,
   teamIdParam,
   teamMemberParam,
