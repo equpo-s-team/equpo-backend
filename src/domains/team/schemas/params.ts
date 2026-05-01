@@ -35,3 +35,7 @@ export const mirrorMyAvatarSchema = z.object({
 export const joinTeamWithInviteCodeSchema = z.object({
   code: z.string().min(1),
 });
+
+export const invitePreviewQuerySchema = z.object({
+  code: z.string().min(1),
+});
