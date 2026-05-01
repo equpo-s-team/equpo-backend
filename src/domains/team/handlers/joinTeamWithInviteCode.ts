@@ -56,15 +56,15 @@ export const joinTeamWithInviteCode: RequestHandler = async (req, res, next) => 
     // Verificar expiración
     const now = new Date();
     const expiresAt = new Date(invitationData.expiresAt);
-    if (now > expiresAt) {
-      const error = new EqupoError('Invitation code has expired');
-      error.status = ERROR_STATUS.FORBIDDEN;
-      throw error;
-    }
+    const isExpired = now > expiresAt;
+    const hasUsesLeft = invitationData.currentUses < invitationData.maxUses;
 
-    // Verificar usos máximos
-    if (invitationData.currentUses >= invitationData.maxUses) {
-      const error = new EqupoError('Invitation code has reached maximum uses');
+    // Si el código está expirado o sin usos, eliminarlo de Firestore
+    if (isExpired || !hasUsesLeft) {
+      await invitationDoc.ref.delete();
+      const error = new EqupoError(
+        isExpired ? 'Invitation code has expired' : 'Invitation code has reached maximum uses'
+      );
       error.status = ERROR_STATUS.FORBIDDEN;
       throw error;
     }
