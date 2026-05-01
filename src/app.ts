@@ -31,6 +31,7 @@ import { updateTaskStep } from '#a/domains/task/handlers/updateTaskStep.js';
 import { createTeam } from '#a/domains/team/handlers/createTeam.js';
 import { deleteTeam } from '#a/domains/team/handlers/deleteTeam.js';
 import { getMyTeams } from '#a/domains/team/handlers/getMyTeams.js';
+import { getTeamInvitePreview } from '#a/domains/team/handlers/getTeamInvitePreview.js';
 import { getTeamMembers } from '#a/domains/team/handlers/getTeamMembers.js';
 import { inviteTeamMember } from '#a/domains/team/handlers/inviteTeamMember.js';
 import { joinTeamWithInviteCode } from '#a/domains/team/handlers/joinTeamWithInviteCode.js';
@@ -81,6 +82,9 @@ api.get('/health', (_req, res) => {
 });
 
 api.get('/teams/me', requireUser, getMyTeams);
+
+// ── GET /teams/invite-preview ── Preview team info from invite code ────────
+api.get('/teams/invite-preview', requireUser, userRateLimit, getTeamInvitePreview);
 
 api.post('/users/me/avatar/mirror', requireUser, userRateLimit, mirrorAvatar);
 
