@@ -42,7 +42,7 @@ export const updateTask: RequestHandler = async (req, res, next) => {
     }
     let previousStatus: string | null = null;
     const task = await withTransaction(async client => {
-      await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
+      const membership = await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
 
       const taskResult = await client.query(
         `SELECT id, due_date, status, priority, assigned_user_uid, assigned_group_id
@@ -59,6 +59,24 @@ export const updateTask: RequestHandler = async (req, res, next) => {
       }
 
       const existingTask = taskResult.rows[0];
+
+      const hasAssignees = existingTask.assigned_user_uid !== null || existingTask.assigned_group_id !== null;
+      const isLeaderOrCollab = membership.isLeader || membership.role === 'collaborator';
+      
+      if (!isLeaderOrCollab && hasAssignees) {
+        const isAssignedQuery = await client.query(
+          `SELECT 1 WHERE $1::text = $3::text
+           UNION
+           SELECT 1 FROM public.group_membership WHERE group_id = $2 AND user_uid = $3`,
+          [existingTask.assigned_user_uid, existingTask.assigned_group_id, authenticatedActorUid]
+        );
+        if (!isAssignedQuery.rowCount) {
+          const error = new EqupoError('Forbidden: only assigned users can edit this task');
+          error.status = ERROR_STATUS.FORBIDDEN;
+          throw error;
+        }
+      }
+
       previousStatus = existingTask.status as string;
       const isOverdue =
         existingTask.status !== 'done' &&

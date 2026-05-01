@@ -26,10 +26,10 @@ export const updateTaskStep: RequestHandler = async (req, res, next) => {
     const authenticatedActorUid = getActorUid(req);
 
     const step = await withTransaction(async client => {
-      await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
+      const membership = await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
 
       const stepResult = await client.query(
-        `SELECT ts.step
+        `SELECT ts.step, t.assigned_user_uid, t.assigned_group_id
            FROM public.task_step ts
            JOIN public.task t ON t.id = ts.task_id
            WHERE ts.step = $1 AND ts.task_id = $2 AND t.team_id = $3
@@ -41,6 +41,24 @@ export const updateTaskStep: RequestHandler = async (req, res, next) => {
         const error = new EqupoError('Step not found');
         error.status = ERROR_STATUS.NOT_FOUND;
         throw error;
+      }
+      
+      const existingStep = stepResult.rows[0];
+      const hasAssignees = existingStep.assigned_user_uid !== null || existingStep.assigned_group_id !== null;
+      const isLeaderOrCollab = membership.isLeader || membership.role === 'collaborator';
+
+      if (!isLeaderOrCollab && hasAssignees) {
+        const isAssignedQuery = await client.query(
+          `SELECT 1 WHERE $1::text = $3::text
+           UNION
+           SELECT 1 FROM public.group_membership WHERE group_id = $2 AND user_uid = $3`,
+          [existingStep.assigned_user_uid, existingStep.assigned_group_id, authenticatedActorUid]
+        );
+        if (!isAssignedQuery.rowCount) {
+          const error = new EqupoError('Forbidden: only assigned users can edit this task step');
+          error.status = ERROR_STATUS.FORBIDDEN;
+          throw error;
+        }
       }
 
       if (stepResult.rows[0].step === 'Supero Review') {
