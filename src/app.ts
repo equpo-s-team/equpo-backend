@@ -28,6 +28,7 @@ import { toggleTaskStep } from '#a/domains/task/handlers/toggleTaskStep.js';
 import { updateTask } from '#a/domains/task/handlers/updateTask.js';
 import { updateTaskCommentary } from '#a/domains/task/handlers/updateTaskCommentary.js';
 import { updateTaskStep } from '#a/domains/task/handlers/updateTaskStep.js';
+import { createInvitationCode } from '#a/domains/team/handlers/createInvitationCode.js';
 import { createTeam } from '#a/domains/team/handlers/createTeam.js';
 import { deleteTeam } from '#a/domains/team/handlers/deleteTeam.js';
 import { getMyTeams } from '#a/domains/team/handlers/getMyTeams.js';
@@ -89,6 +90,14 @@ api.get('/teams/invite-preview', requireUser, userRateLimit, getTeamInvitePrevie
 api.post('/users/me/avatar/mirror', requireUser, userRateLimit, mirrorAvatar);
 
 api.post('/teams', requireUser, userRateLimit, createTeam);
+
+// ── POST /teams/:teamId/invitation-codes ── Create invitation code ──────────
+api.post(
+  '/teams/:teamId/invitation-codes',
+  requireUser,
+  userRateLimit,
+  createInvitationCode
+);
 
 // ── POST /teams/join ── Join a team using an invitation code ────────────────
 api.post('/teams/join', requireUser, userRateLimit, joinTeamWithInviteCode);

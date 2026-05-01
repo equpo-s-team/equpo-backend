@@ -1,4 +1,5 @@
 import { ERROR_STATUS, SUCCESS_STATUS } from '#a/constants/httpStatusCodes.js';
+import { pool } from '#a/db.js';
 import { invitePreviewQuerySchema } from '#a/domains/team/schemas/index.js';
 import { getFirestoreDb } from '#a/firebaseAdmin.js';
 import { EqupoError } from '#a/types/EqupoError.js';
@@ -14,7 +15,6 @@ interface InvitationCodeData {
   currentUses: number;
   teamName?: string;
   teamPhotoUrl?: string;
-  teamDescription?: string;
   code: string;
 }
 
@@ -76,18 +76,45 @@ export const getTeamInvitePreview: RequestHandler = async (req, res, next) => {
     const usesLeft = invitationData.maxUses - invitationData.currentUses;
     const hasUsesLeft = usesLeft > 0;
 
-    const isValid = !isExpired && hasUsesLeft;
+    // Si el código está expirado o sin usos, eliminarlo de Firestore y devolver error
+    if (isExpired || !hasUsesLeft) {
+      await invitationDoc.ref.delete();
+      const error = new EqupoError(
+        isExpired ? 'Invitation code has expired' : 'Invitation code has reached maximum uses'
+      );
+      error.status = ERROR_STATUS.FORBIDDEN;
+      throw error;
+    }
 
-    // Verificar si el usuario ya es miembro (para mostrar en el preview)
-    // Nota: Esto es opcional, el frontend puede verificarlo después
+    const isValid = true;
+
+    // Obtener foto del equipo (del invitationCode o directo de Firestore como fallback)
+    let photoUrl = invitationData.teamPhotoUrl;
+    if (!photoUrl) {
+      const teamDoc = await db.collection('teams').doc(teamId).get();
+      const teamData = teamDoc.data();
+      photoUrl =
+        teamData?.photoURL ||
+        teamData?.photoUrl ||
+        teamData?.photo_url ||
+        undefined;
+    }
+
+    // Obtener descripción desde PostgreSQL
+    const pgTeamResult = await pool.query(
+      `SELECT description FROM public.team WHERE id = $1 LIMIT 1`,
+      [teamId]
+    );
+    const pgDescription =
+      (pgTeamResult.rows[0]?.description as string | undefined) || undefined;
 
     const response: TeamPreviewResponse = {
       code,
       team: {
         id: teamId,
         name: invitationData.teamName || 'Unknown Team',
-        photoUrl: invitationData.teamPhotoUrl,
-        description: invitationData.teamDescription,
+        photoUrl,
+        description: pgDescription || undefined,
       },
       role: invitationData.role,
       expiresAt: invitationData.expiresAt,
