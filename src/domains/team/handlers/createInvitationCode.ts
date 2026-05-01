@@ -10,6 +10,7 @@ import { getFirestoreDb } from '#a/firebaseAdmin.js';
 import { EqupoError } from '#a/types/EqupoError.js';
 import { assertBody, getActorUid, logEndpointAudit } from '#a/utils/index.js';
 import { RequestHandler } from 'express';
+import { FirebaseFirestore } from '@google-cloud/firestore';
 
 interface InvitationCodeData {
   code: string;
@@ -41,7 +42,10 @@ function generateInviteCode(): string {
 /**
  * Ensures the generated code is unique in Firestore
  */
-async function generateUniqueCode(db: FirebaseFirestore.Firestore, teamId: string): Promise<string> {
+async function generateUniqueCode(
+  db: FirebaseFirestore.Firestore,
+  teamId: string
+): Promise<string> {
   let attempts = 0;
   const maxAttempts = 10;
 
@@ -63,7 +67,9 @@ async function generateUniqueCode(db: FirebaseFirestore.Firestore, teamId: strin
     }
   }
 
-  throw new EqupoError('Failed to generate unique invitation code after multiple attempts');
+  throw new EqupoError(
+    'Failed to generate unique invitation code after multiple attempts'
+  );
 }
 
 export const createInvitationCode: RequestHandler = async (req, res, next) => {
@@ -97,7 +103,9 @@ export const createInvitationCode: RequestHandler = async (req, res, next) => {
 
     // Calcular fecha de expiración
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + input.expiresInHours * 60 * 60 * 1000);
+    const expiresAt = new Date(
+      now.getTime() + input.expiresInHours * 60 * 60 * 1000
+    );
 
     // Generar código único
     const db = getFirestoreDb();
@@ -113,7 +121,9 @@ export const createInvitationCode: RequestHandler = async (req, res, next) => {
       undefined;
 
     // Crear documento en Firestore (sin undefined values)
-    const invitationData: Omit<InvitationCodeData, 'teamPhotoUrl'> & { teamPhotoUrl?: string } = {
+    const invitationData: Omit<InvitationCodeData, 'teamPhotoUrl'> & {
+      teamPhotoUrl?: string;
+    } = {
       code,
       teamId: parsedTeamId,
       teamName,

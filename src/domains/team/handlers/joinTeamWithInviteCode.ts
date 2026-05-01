@@ -20,7 +20,11 @@ interface InvitationCodeData {
   teamName?: string;
 }
 
-export const joinTeamWithInviteCode: RequestHandler = async (req, res, next) => {
+export const joinTeamWithInviteCode: RequestHandler = async (
+  req,
+  res,
+  next
+) => {
   const actorUid = req.user?.uid ?? null;
   let teamId: string | null = null;
 
@@ -48,7 +52,9 @@ export const joinTeamWithInviteCode: RequestHandler = async (req, res, next) => 
 
     // Verificar que el teamId esté presente
     if (!teamId) {
-      const error = new EqupoError('Invalid invitation code: missing team data');
+      const error = new EqupoError(
+        'Invalid invitation code: missing team data'
+      );
       error.status = ERROR_STATUS.SERVER_ERROR;
       throw error;
     }
@@ -63,7 +69,9 @@ export const joinTeamWithInviteCode: RequestHandler = async (req, res, next) => 
     if (isExpired || !hasUsesLeft) {
       await invitationDoc.ref.delete();
       const error = new EqupoError(
-        isExpired ? 'Invitation code has expired' : 'Invitation code has reached maximum uses'
+        isExpired
+          ? 'Invitation code has expired'
+          : 'Invitation code has reached maximum uses'
       );
       error.status = ERROR_STATUS.FORBIDDEN;
       throw error;
@@ -131,7 +139,8 @@ export const joinTeamWithInviteCode: RequestHandler = async (req, res, next) => 
         [authenticatedActorUid]
       );
       const displayName =
-        (userResult.rows[0]?.display_name as string | null) ?? authenticatedActorUid;
+        (userResult.rows[0]?.display_name as string | null) ??
+        authenticatedActorUid;
       await insertSystemMessage(
         teamId,
         generalGroupId,

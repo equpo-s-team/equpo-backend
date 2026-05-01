@@ -85,7 +85,12 @@ api.get('/health', (_req, res) => {
 api.get('/teams/me', requireUser, getMyTeams);
 
 // ── GET /teams/invite-preview ── Preview team info from invite code ────────
-api.get('/teams/invite-preview', requireUser, userRateLimit, getTeamInvitePreview);
+api.get(
+  '/teams/invite-preview',
+  requireUser,
+  userRateLimit,
+  getTeamInvitePreview
+);
 
 api.post('/users/me/avatar/mirror', requireUser, userRateLimit, mirrorAvatar);
 
