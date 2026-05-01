@@ -29,7 +29,13 @@ export const toggleTaskStep: RequestHandler = async (req, res, next) => {
     const authenticatedActorUid = getActorUid(req);
 
     const result = await withTransaction(async client => {
-      await assertTeamMembership(client, parsedTeamId, authenticatedActorUid);
+      const membership = await assertTeamMembership(client, parsedTeamId, authenticatedActorUid);
+      if (membership.role === 'spectator') {
+        const error = new EqupoError('Forbidden: spectators cannot perform this action');
+        error.status = ERROR_STATUS.FORBIDDEN;
+        throw error;
+      }
+      const isLeaderOrCollab = membership.isLeader || membership.role === 'collaborator';
 
       const stepResult = await client.query(
         `SELECT ts.step, ts.is_done,
@@ -48,6 +54,21 @@ export const toggleTaskStep: RequestHandler = async (req, res, next) => {
       }
 
       const stepRow = stepResult.rows[0];
+      const hasAssignees = stepRow.assigned_user_uid !== null || stepRow.assigned_group_id !== null;
+
+      if (!isLeaderOrCollab && hasAssignees) {
+        const isAssignedQuery = await client.query(
+          `SELECT 1 WHERE $1::text = $3::text
+           UNION
+           SELECT 1 FROM public.group_membership WHERE group_id = $2 AND user_uid = $3`,
+          [stepRow.assigned_user_uid, stepRow.assigned_group_id, authenticatedActorUid]
+        );
+        if (!isAssignedQuery.rowCount) {
+          const error = new EqupoError('Forbidden: only assigned users can edit this task step');
+          error.status = ERROR_STATUS.FORBIDDEN;
+          throw error;
+        }
+      }
       const isSuperoReview = stepRow.step === 'Supero Review';
       const taskStatus: string = stepRow.status;
 
@@ -62,13 +83,7 @@ export const toggleTaskStep: RequestHandler = async (req, res, next) => {
         }
 
         // Check actor role for restriction
-        const memberResult = await client.query(
-          `SELECT role FROM public.team_membership WHERE team_id = $1 AND user_uid = $2 LIMIT 1`,
-          [parsedTeamId, authenticatedActorUid]
-        );
-        const actorRole: string = memberResult.rows[0]?.role ?? 'member';
-        const isLeaderOrCollab =
-          actorRole === 'leader' || actorRole === 'collaborator';
+        // (Using hoisted membership instead of querying DB again)
 
         // Check if actor is an assigned user
         let isAssigned = stepRow.assigned_user_uid === authenticatedActorUid;
