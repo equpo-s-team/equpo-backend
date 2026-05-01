@@ -5,7 +5,7 @@ import {
   removeChatRoomMemberFromFirestore,
 } from '#a/domains/room/firestore/index.js';
 import { deleteTeamMembershipFromFirestore } from '#a/domains/team/firestore/teamMembershipFirestore.js';
-import { assertTeamPermission } from '#a/domains/team/guards/index.js';
+import { assertTeamAdminPermission } from '#a/domains/team/guards/index.js';
 import { teamMemberParam } from '#a/domains/team/schemas/index.js';
 import { EqupoError } from '#a/types/EqupoError.js';
 import { getActorUid, logEndpointAudit } from '#a/utils/index.js';
@@ -30,7 +30,7 @@ export const removeTeamMember: RequestHandler = async (req, res, next) => {
     }
 
     const kickResult = await withTransaction(async client => {
-      const { isLeader, role: actorRole } = await assertTeamPermission(
+      const { isLeader, role: actorRole } = await assertTeamAdminPermission(
         client,
         parsedTeamId,
         authenticatedActorUid

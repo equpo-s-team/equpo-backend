@@ -7,7 +7,7 @@ import {
 import { addGroupMembersSchema } from '#a/domains/room/schemas/index.js';
 import { assertGroupBelongsToTeam } from '#a/domains/task/guards/index.js';
 import {
-  assertTeamPermission,
+  assertTeamAdminPermission,
   assertUserBelongsToTeam,
 } from '#a/domains/team/guards/index.js';
 import { teamIdParam } from '#a/domains/team/schemas/index.js';
@@ -26,7 +26,7 @@ export const addGroupMembers: RequestHandler = async (req, res, next) => {
     const authenticatedActorUid = getActorUid(req);
 
     await withTransaction(async client => {
-      await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
+      await assertTeamAdminPermission(client, parsedTeamId, authenticatedActorUid);
       await assertGroupBelongsToTeam(client, parsedTeamId, groupId);
 
       const countResult = await client.query(

@@ -12,7 +12,7 @@ import {
 } from '#a/domains/room/schemas/index.js';
 import { assertGroupBelongsToTeam } from '#a/domains/task/guards/index.js';
 import {
-  assertTeamPermission,
+  assertTeamAdminPermission,
   assertUserBelongsToTeam,
 } from '#a/domains/team/guards/index.js';
 import { EqupoError } from '#a/types/EqupoError.js';
@@ -33,7 +33,7 @@ export const updateGroup: RequestHandler = async (req, res, next) => {
 
     await withTransaction(async client => {
       // Allow leaders and collaborators to edit
-      await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
+      await assertTeamAdminPermission(client, parsedTeamId, authenticatedActorUid);
       await assertGroupBelongsToTeam(client, parsedTeamId, groupId);
 
       // Update group details if provided
