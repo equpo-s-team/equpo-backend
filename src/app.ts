@@ -39,6 +39,7 @@ import { joinTeamWithInviteCode } from '#a/domains/team/handlers/joinTeamWithInv
 import { removeTeamMember } from '#a/domains/team/handlers/removeTeamMember.js';
 import { updateTeam } from '#a/domains/team/handlers/updateTeam.js';
 import { updateTeamMemberRole } from '#a/domains/team/handlers/updateTeamMemberRole.js';
+import { getQuote } from '#a/domains/quotes/handlers/getQuote.js';
 import { mirrorAvatar } from '#a/domains/user/handlers/mirrorAvatar.js';
 import { getUserPreview } from '#a/domains/user/handlers/getUserPreview.js';
 import { generateDescriptionHandler } from '#a/domains/ai/handlers/generateDescription.js';
@@ -82,6 +83,8 @@ const userRateLimit = createUserRateLimitMiddleware(config.rateLimit);
 api.get('/health', (_req, res) => {
   res.json({ ok: true, prefix: config.apiPrefix });
 });
+
+api.get('/quotes/random', requireUser, userRateLimit, getQuote);
 
 api.get('/teams/me', requireUser, getMyTeams);
 
