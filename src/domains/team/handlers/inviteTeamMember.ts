@@ -5,7 +5,7 @@ import {
   insertSystemMessage,
 } from '#a/domains/room/firestore/index.js';
 import { upsertTeamMembershipInFirestore } from '#a/domains/team/firestore/teamMembershipFirestore.js';
-import { assertTeamPermission } from '#a/domains/team/guards/index.js';
+import { assertTeamAdminPermission } from '#a/domains/team/guards/index.js';
 import {
   inviteTeamMemberSchema,
   teamIdParam,
@@ -24,7 +24,7 @@ export const inviteTeamMember: RequestHandler = async (req, res, next) => {
     const authenticatedActorUid = getActorUid(req);
 
     const membership = await withTransaction(async client => {
-      await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
+      await assertTeamAdminPermission(client, parsedTeamId, authenticatedActorUid);
 
       const result = await client.query(
         `INSERT INTO public.team_membership (user_uid, team_id, role, joined_at)

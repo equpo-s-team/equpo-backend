@@ -1,6 +1,6 @@
 import { ERROR_STATUS } from '#a/constants/httpStatusCodes.js';
 import { withTransaction } from '#a/db.js';
-import { assertTeamPermission } from '#a/domains/team/guards/index.js';
+import { assertTeamAdminPermission } from '#a/domains/team/guards/index.js';
 import {
   teamIdParam,
   updateTeamSchema,
@@ -24,7 +24,7 @@ export const updateTeam: RequestHandler = async (req, res, next) => {
     }
 
     const team = await withTransaction(async client => {
-      await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
+      await assertTeamAdminPermission(client, parsedTeamId, authenticatedActorUid);
 
       const updates: string[] = [];
       const values: Array<string | number | null> = [];

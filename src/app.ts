@@ -121,13 +121,6 @@ api.post(
 );
 
 api.post(
-  '/teams/:teamId/achievements',
-  requireUser,
-  userRateLimit,
-  createAchievement
-);
-
-api.post(
   '/teams/:teamId/achievements/unlocks',
   requireUser,
   userRateLimit,
@@ -296,6 +289,7 @@ api.get(
   getMyValidTaskIds
 );
 
+api.post('/internal/teams/:teamId/achievements', requireSystem, createAchievement);
 api.post('/internal/users/:userUid/rewards', requireSystem, grantSystemReward);
 
 api.post(

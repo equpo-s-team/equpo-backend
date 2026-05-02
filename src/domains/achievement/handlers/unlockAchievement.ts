@@ -2,7 +2,7 @@ import { ERROR_STATUS } from '#a/constants/httpStatusCodes.js';
 import { withTransaction } from '#a/db.js';
 import { unlockAchievementSchema } from '#a/domains/achievement/schemas/index.js';
 import {
-  assertTeamPermission,
+  assertTeamAdminPermission,
   assertUserBelongsToTeam,
 } from '#a/domains/team/guards/index.js';
 import { teamIdParam } from '#a/domains/team/schemas/index.js';
@@ -20,7 +20,7 @@ export const unlockAchievement: RequestHandler = async (req, res, next) => {
     const authenticatedActorUid = getActorUid(req);
 
     const userAchievement = await withTransaction(async client => {
-      await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
+      await assertTeamAdminPermission(client, parsedTeamId, authenticatedActorUid);
       await assertUserBelongsToTeam(client, parsedTeamId, input.userUid);
 
       const achievementResult = await client.query(
