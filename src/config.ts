@@ -44,4 +44,5 @@ export const config = {
   zegoAppId: Number(required('ZEGO_APP_ID')),
   zegoServerSecret: required('ZEGO_SERVER_SECRET'),
   zegoTokenTtlSeconds: positiveNumber('ZEGO_TOKEN_TTL_SECONDS', 600),
+  apiNinjasKey: required('API_NINJAS_KEY'),
 };

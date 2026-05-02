@@ -36,6 +36,7 @@ import { inviteTeamMember } from '#a/domains/team/handlers/inviteTeamMember.js';
 import { removeTeamMember } from '#a/domains/team/handlers/removeTeamMember.js';
 import { updateTeam } from '#a/domains/team/handlers/updateTeam.js';
 import { updateTeamMemberRole } from '#a/domains/team/handlers/updateTeamMemberRole.js';
+import { getQuote } from '#a/domains/quotes/handlers/getQuote.js';
 import { mirrorAvatar } from '#a/domains/user/handlers/mirrorAvatar.js';
 import { requireSystem } from '#a/systemAuth.js';
 import { EqupoError } from '#a/types/EqupoError.js';
@@ -77,6 +78,8 @@ const userRateLimit = createUserRateLimitMiddleware(config.rateLimit);
 api.get('/health', (_req, res) => {
   res.json({ ok: true, prefix: config.apiPrefix });
 });
+
+api.get('/quotes/random', requireUser, userRateLimit, getQuote);
 
 api.get('/teams/me', requireUser, getMyTeams);
 
