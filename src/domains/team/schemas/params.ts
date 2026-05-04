@@ -16,13 +16,18 @@ export const updateTeamSchema = z.object({
   photoUrl: z.string().url().nullable().optional(),
 });
 
-export const inviteTeamMemberSchema = z.object({
-  userUid: z.string().min(1),
-  role: z
-    .enum(['collaborator', 'spectator', 'member'])
-    .optional()
-    .default('member'),
-});
+export const inviteTeamMemberSchema = z
+  .object({
+    userUid: z.string().min(1).optional(),
+    email: z.string().email().optional(),
+    role: z
+      .enum(['collaborator', 'spectator', 'member'])
+      .optional()
+      .default('member'),
+  })
+  .refine(data => Boolean(data.userUid) !== Boolean(data.email), {
+    message: 'Provide exactly one of userUid or email',
+  });
 
 export const updateTeamMemberRoleSchema = z.object({
   role: z.enum(['collaborator', 'spectator', 'member']),
