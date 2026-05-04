@@ -124,7 +124,9 @@ export const updateGroup: RequestHandler = async (req, res, next) => {
         ...(input.photoUrl !== undefined && {
           photoUrl: input.photoUrl ?? undefined,
         }),
-        ...(input.photoUrl !== undefined && { photoUrl: input.photoUrl ?? undefined }),
+        ...(input.photoUrl !== undefined && {
+          photoUrl: input.photoUrl ?? undefined,
+        }),
       });
       await insertSystemMessage(
         parsedTeamId,

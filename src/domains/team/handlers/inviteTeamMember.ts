@@ -26,13 +26,35 @@ export const inviteTeamMember: RequestHandler = async (req, res, next) => {
     const membership = await withTransaction(async client => {
       await assertTeamAdminPermission(client, parsedTeamId, authenticatedActorUid);
 
+      let resolvedUid = input.userUid ?? null;
+      if (!resolvedUid && input.email) {
+        const lookup = await client.query(
+          `SELECT uid FROM public."user" WHERE LOWER(email) = LOWER($1) LIMIT 1`,
+          [input.email]
+        );
+        if (!lookup.rowCount) {
+          const error = new EqupoError(
+            'No user found with that email address.'
+          );
+          error.status = ERROR_STATUS.NOT_FOUND;
+          throw error;
+        }
+        resolvedUid = lookup.rows[0].uid as string;
+      }
+
+      if (!resolvedUid) {
+        const error = new EqupoError('userUid or email is required');
+        error.status = ERROR_STATUS.VALIDATION;
+        throw error;
+      }
+
       const result = await client.query(
         `INSERT INTO public.team_membership (user_uid, team_id, role, joined_at)
          VALUES ($1, $2, $3, NOW())
          ON CONFLICT (user_uid, team_id)
          DO NOTHING
          RETURNING user_uid, team_id, role`,
-        [input.userUid, parsedTeamId, input.role]
+        [resolvedUid, parsedTeamId, input.role]
       );
 
       if (!result.rowCount) {
@@ -61,22 +83,22 @@ export const inviteTeamMember: RequestHandler = async (req, res, next) => {
       const generalGroupId = generalGroupResult.rows[0].id as string;
       await pool.query(
         `INSERT INTO public.group_membership (group_id, user_uid) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-        [generalGroupId, input.userUid]
+        [generalGroupId, membership.user_uid]
       );
       await addChatRoomMemberInFirestore(
         parsedTeamId,
         generalGroupId,
-        input.userUid,
+        membership.user_uid,
         input.role
       );
 
       // Fetch display name for system message
       const userResult = await pool.query(
         `SELECT display_name FROM public."user" WHERE uid = $1 LIMIT 1`,
-        [input.userUid]
+        [membership.user_uid]
       );
       const displayName =
-        (userResult.rows[0]?.display_name as string | null) ?? input.userUid;
+        (userResult.rows[0]?.display_name as string | null) ?? membership.user_uid;
       await insertSystemMessage(
         parsedTeamId,
         generalGroupId,
@@ -89,7 +111,7 @@ export const inviteTeamMember: RequestHandler = async (req, res, next) => {
       outcome: 'success',
       actorUid: authenticatedActorUid,
       teamId: parsedTeamId,
-      targetUserUid: input.userUid,
+      targetUserUid: membership.user_uid,
     });
 
     return res.status(SUCCESS_STATUS.CREATED).json({ membership });

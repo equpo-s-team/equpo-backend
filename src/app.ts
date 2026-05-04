@@ -28,15 +28,19 @@ import { toggleTaskStep } from '#a/domains/task/handlers/toggleTaskStep.js';
 import { updateTask } from '#a/domains/task/handlers/updateTask.js';
 import { updateTaskCommentary } from '#a/domains/task/handlers/updateTaskCommentary.js';
 import { updateTaskStep } from '#a/domains/task/handlers/updateTaskStep.js';
+import { createInvitationCode } from '#a/domains/team/handlers/createInvitationCode.js';
 import { createTeam } from '#a/domains/team/handlers/createTeam.js';
 import { deleteTeam } from '#a/domains/team/handlers/deleteTeam.js';
 import { getMyTeams } from '#a/domains/team/handlers/getMyTeams.js';
+import { getTeamInvitePreview } from '#a/domains/team/handlers/getTeamInvitePreview.js';
 import { getTeamMembers } from '#a/domains/team/handlers/getTeamMembers.js';
 import { inviteTeamMember } from '#a/domains/team/handlers/inviteTeamMember.js';
+import { joinTeamWithInviteCode } from '#a/domains/team/handlers/joinTeamWithInviteCode.js';
 import { removeTeamMember } from '#a/domains/team/handlers/removeTeamMember.js';
 import { updateTeam } from '#a/domains/team/handlers/updateTeam.js';
 import { updateTeamMemberRole } from '#a/domains/team/handlers/updateTeamMemberRole.js';
 import { mirrorAvatar } from '#a/domains/user/handlers/mirrorAvatar.js';
+import { getUserPreview } from '#a/domains/user/handlers/getUserPreview.js';
 import { generateDescriptionHandler } from '#a/domains/ai/handlers/generateDescription.js';
 import { requireSystem } from '#a/systemAuth.js';
 import { EqupoError } from '#a/types/EqupoError.js';
@@ -81,9 +85,31 @@ api.get('/health', (_req, res) => {
 
 api.get('/teams/me', requireUser, getMyTeams);
 
+// ── GET /teams/invite-preview ── Preview team info from invite code ────────
+api.get(
+  '/teams/invite-preview',
+  requireUser,
+  userRateLimit,
+  getTeamInvitePreview
+);
+
 api.post('/users/me/avatar/mirror', requireUser, userRateLimit, mirrorAvatar);
 
+// ── GET /users/preview ── Preview user info by UID ───────────────────────────
+api.get('/users/preview', requireUser, userRateLimit, getUserPreview);
+
 api.post('/teams', requireUser, userRateLimit, createTeam);
+
+// ── POST /teams/:teamId/invitation-codes ── Create invitation code ──────────
+api.post(
+  '/teams/:teamId/invitation-codes',
+  requireUser,
+  userRateLimit,
+  createInvitationCode
+);
+
+// ── POST /teams/join ── Join a team using an invitation code ────────────────
+api.post('/teams/join', requireUser, userRateLimit, joinTeamWithInviteCode);
 
 api.patch('/teams/:teamId', requireUser, userRateLimit, updateTeam);
 
