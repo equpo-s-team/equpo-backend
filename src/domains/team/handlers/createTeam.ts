@@ -17,8 +17,8 @@ export const createTeam: RequestHandler = async (req, res, next) => {
 
     const team = await withTransaction(async client => {
       const teamResult = await client.query(
-        `INSERT INTO public.team (name, leader_uid, virtual_currency, description, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, NOW(), NOW()) RETURNING id, name, leader_uid, virtual_currency, description`,
+        `INSERT INTO public.team (name, leader_uid, virtual_currency, description, environment_health, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, 60, NOW(), NOW()) RETURNING id, name, leader_uid, virtual_currency, description, environment_health`,
         [
           input.name,
           authenticatedActorUid,
