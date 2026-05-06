@@ -34,8 +34,15 @@ export const getReportsKpiHandler: RequestHandler = async (req, res, next) => {
         rangeEnd
       );
 
+      const teamResult = await client.query(
+        `SELECT environment_health FROM public.team WHERE id = $1 LIMIT 1`,
+        [parsedTeamId]
+      );
+      const environmentHealth = Number(teamResult.rows[0]?.environment_health ?? 60);
+
       return {
         kpi,
+        environmentHealth,
         meta: {
           teamId: parsedTeamId,
           days,

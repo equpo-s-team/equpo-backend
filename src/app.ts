@@ -37,6 +37,8 @@ import { removeTeamMember } from '#a/domains/team/handlers/removeTeamMember.js';
 import { updateTeam } from '#a/domains/team/handlers/updateTeam.js';
 import { updateTeamMemberRole } from '#a/domains/team/handlers/updateTeamMemberRole.js';
 import { getQuote } from '#a/domains/quotes/handlers/getQuote.js';
+import { environmentInteract } from '#a/domains/team/handlers/environmentInteract.js';
+import { getProfile } from '#a/domains/user/handlers/getProfile.js';
 import { mirrorAvatar } from '#a/domains/user/handlers/mirrorAvatar.js';
 import { requireSystem } from '#a/systemAuth.js';
 import { EqupoError } from '#a/types/EqupoError.js';
@@ -83,7 +85,10 @@ api.get('/quotes/random', requireUser, userRateLimit, getQuote);
 
 api.get('/teams/me', requireUser, getMyTeams);
 
+api.get('/users/me/profile', requireUser, getProfile);
 api.post('/users/me/avatar/mirror', requireUser, userRateLimit, mirrorAvatar);
+
+api.post('/teams/:teamId/environment/interact', requireUser, userRateLimit, environmentInteract);
 
 api.post('/teams', requireUser, userRateLimit, createTeam);
 

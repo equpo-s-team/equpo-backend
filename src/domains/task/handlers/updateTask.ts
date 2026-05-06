@@ -13,6 +13,7 @@ import {
 import { assertTeamPermission } from '#a/domains/team/guards/index.js';
 import {
   COIN_REWARDS,
+  HEALTH_REWARDS,
   XP_REWARDS,
   calculateLevel,
 } from '#a/domains/user/xpUtils.js';
@@ -147,7 +148,7 @@ export const updateTask: RequestHandler = async (req, res, next) => {
         }
       }
 
-      // Uncheck "Supero Review" when moving status backward from 'done'
+      // Uncheck "Supero Review" and penalise environment health when moving backward from 'done'
       if (
         input.status !== undefined &&
         existingTask.status === 'done' &&
@@ -158,6 +159,17 @@ export const updateTask: RequestHandler = async (req, res, next) => {
              SET is_done = false, updated_at = NOW()
              WHERE task_id = $1 AND step = 'Supero Review'`,
           [parsedTaskId]
+        );
+
+        const undoHealthDelta =
+          HEALTH_REWARDS[(existingTask.priority as keyof typeof HEALTH_REWARDS) ?? 'medium'] ??
+          HEALTH_REWARDS.medium;
+        await client.query(
+          `UPDATE public.team
+             SET environment_health = GREATEST(environment_health - $1, 0),
+                 updated_at = NOW()
+             WHERE id = $2`,
+          [undoHealthDelta, parsedTeamId]
         );
       }
 
@@ -232,6 +244,17 @@ export const updateTask: RequestHandler = async (req, res, next) => {
                  updated_at = NOW()
              WHERE id = $2`,
           [teamCoinAmount, parsedTeamId]
+        );
+
+        // Boost environment health
+        const healthDelta =
+          HEALTH_REWARDS[priority as keyof typeof HEALTH_REWARDS] ?? HEALTH_REWARDS.medium;
+        await client.query(
+          `UPDATE public.team
+             SET environment_health = LEAST(environment_health + $1, 100),
+                 updated_at = NOW()
+             WHERE id = $2`,
+          [healthDelta, parsedTeamId]
         );
 
         // Check achievements
