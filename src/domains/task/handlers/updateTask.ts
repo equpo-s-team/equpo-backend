@@ -1,7 +1,7 @@
 import { ERROR_STATUS } from '#a/constants/httpStatusCodes.js';
 import { withTransaction } from '#a/db.js';
-import { checkAchievementsOnTaskComplete } from '#a/domains/achievement/schemas/index.js';
 import { upsertTaskInFirestore } from '#a/domains/task/firestore/index.js';
+import { grantTaskCompletionRewards } from '#a/domains/task/helpers/grantTaskCompletionRewards.js';
 import {
   teamTaskParam,
   updateTaskSchema,
@@ -11,11 +11,6 @@ import {
   normalizeCategories,
 } from '#a/domains/task/utils.js';
 import { assertTeamPermission } from '#a/domains/team/guards/index.js';
-import {
-  COIN_REWARDS,
-  XP_REWARDS,
-  calculateLevel,
-} from '#a/domains/user/xpUtils.js';
 import { EqupoError } from '#a/types/EqupoError.js';
 import { assertBody, getActorUid, logEndpointAudit } from '#a/utils/index.js';
 import { RequestHandler } from 'express';
@@ -206,87 +201,19 @@ export const updateTask: RequestHandler = async (req, res, next) => {
       previousStatus !== 'done';
 
     if (isTransitionToDone) {
-      const priority = (task.priority as string) ?? 'medium';
-      const xpAmount =
-        XP_REWARDS[priority as keyof typeof XP_REWARDS] ?? XP_REWARDS.medium;
-      const userCoinAmount =
-        (COIN_REWARDS[priority as keyof typeof COIN_REWARDS] ??
-          COIN_REWARDS.medium) / 2;
-
-      const teamCoinAmount =
-        COIN_REWARDS[priority as keyof typeof COIN_REWARDS] ??
-        COIN_REWARDS.medium;
-
-      const xpResult = await withTransaction(async client => {
-        const userResult = await client.query(
-          `UPDATE public."user"
-             SET experience_points = COALESCE(experience_points, 0) + $1,
-                 virtual_currency = COALESCE(virtual_currency, 0) + $3,
-                 updated_at = NOW()
-             WHERE uid = $2
-             RETURNING experience_points, level, virtual_currency`,
-          [xpAmount, authenticatedActorUid, userCoinAmount]
-        );
-
-        const newTotalXp = Number(userResult.rows[0]?.experience_points ?? 0);
-        const newLevel = calculateLevel(newTotalXp);
-        const oldLevel = Number(userResult.rows[0]?.level ?? 0);
-        const leveledUp = newLevel > oldLevel;
-
-        // Update level if changed
-        if (leveledUp) {
-          await client.query(
-            `UPDATE public."user"
-               SET level = $1, updated_at = NOW()
-               WHERE uid = $2`,
-            [newLevel, authenticatedActorUid]
-          );
-        }
-
-        // Grant coins to the team
-        await client.query(
-          `UPDATE public.team
-             SET virtual_currency = COALESCE(virtual_currency, 0) + $1,
-                 updated_at = NOW()
-             WHERE id = $2`,
-          [teamCoinAmount, parsedTeamId]
-        );
-
-        // Check achievements
-        const achievements = await checkAchievementsOnTaskComplete({
+      const result = await withTransaction(client =>
+        grantTaskCompletionRewards({
           client,
-          userUid: authenticatedActorUid,
           teamId: parsedTeamId,
           taskId: parsedTaskId,
-          newLevel,
+          actorUid: authenticatedActorUid,
+          taskPriority: (task.priority as string) ?? 'medium',
           assignedUserUid: (task.assignedUserUid as string | null) ?? null,
           assignedGroupId: (task.assignedGroupId as string | null) ?? null,
-        });
-
-        return {
-          xpGained: xpAmount,
-          coinsGained: teamCoinAmount,
-          userCoinsGained: userCoinAmount,
-          newXp: newTotalXp,
-          newLevel,
-          newUserVirtualCurrency: Number(
-            userResult.rows[0]?.virtual_currency ?? 0
-          ),
-          leveledUp,
-          achievements,
-        };
-      });
-
-      xpReward = {
-        xpGained: xpResult.xpGained,
-        coinsGained: xpResult.coinsGained,
-        userCoinsGained: xpResult.userCoinsGained,
-        newXp: xpResult.newXp,
-        newLevel: xpResult.newLevel,
-        newUserVirtualCurrency: xpResult.newUserVirtualCurrency,
-        leveledUp: xpResult.leveledUp,
-      };
-      unlockedAchievements = xpResult.achievements;
+        })
+      );
+      xpReward = result.xpReward;
+      unlockedAchievements = result.unlockedAchievements;
     }
 
     await upsertTaskInFirestore({
