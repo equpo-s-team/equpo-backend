@@ -46,8 +46,7 @@ export const purchaseMemberReward: RequestHandler = async (req, res, next) => {
       // Decrement membership wallet (also works for leader whose wallet is in team_membership)
       const membershipResult = await client.query(
         `UPDATE public.team_membership
-            SET virtual_currency = virtual_currency - $1,
-                updated_at = NOW()
+            SET virtual_currency = virtual_currency - $1
           WHERE team_id = $2 AND user_uid = $3 AND virtual_currency >= $1
           RETURNING virtual_currency AS "virtualCurrency"`,
         [reward.cost, parsedTeamId, authenticatedActorUid]
@@ -61,10 +60,11 @@ export const purchaseMemberReward: RequestHandler = async (req, res, next) => {
 
       // Record the purchase
       const userRewardResult = await client.query(
-        `INSERT INTO public.user_reward (user_uid, reward_id, date_obtained, created_at, updated_at)
-         VALUES ($1, $2, NOW(), NOW(), NOW())
-         RETURNING user_uid AS "userUid", reward_id AS "rewardId", date_obtained AS "dateObtained", redeemed_at AS "redeemedAt"`,
-        [authenticatedActorUid, rewardId]
+        `INSERT INTO public.user_reward (user_uid, reward_id, team_id, date_obtained, created_at, updated_at)
+         VALUES ($1, $2, $3, NOW(), NOW(), NOW())
+         RETURNING user_uid AS "userUid", reward_id AS "rewardId", team_id AS "teamId",
+                   date_obtained AS "dateObtained", redeemed_at AS "redeemedAt"`,
+        [authenticatedActorUid, rewardId, parsedTeamId]
       );
 
       // Grant XP to buyer
