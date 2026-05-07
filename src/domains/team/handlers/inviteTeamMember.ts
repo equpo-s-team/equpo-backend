@@ -49,8 +49,8 @@ export const inviteTeamMember: RequestHandler = async (req, res, next) => {
       }
 
       const result = await client.query(
-        `INSERT INTO public.team_membership (user_uid, team_id, role, joined_at)
-         VALUES ($1, $2, $3, NOW())
+        `INSERT INTO public.team_membership (user_uid, team_id, role, joined_at, virtual_currency)
+         VALUES ($1, $2, $3, NOW(), 0)
          ON CONFLICT (user_uid, team_id)
          DO NOTHING
          RETURNING user_uid, team_id, role`,
