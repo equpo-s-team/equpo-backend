@@ -16,7 +16,11 @@ export const redeemMemberReward: RequestHandler = async (req, res, next) => {
     const authenticatedActorUid = getActorUid(req);
 
     const userReward = await withTransaction(async client => {
-      await assertTeamAdminPermission(client, parsedTeamId, authenticatedActorUid);
+      await assertTeamAdminPermission(
+        client,
+        parsedTeamId,
+        authenticatedActorUid
+      );
 
       const result = await client.query(
         `UPDATE public.user_reward

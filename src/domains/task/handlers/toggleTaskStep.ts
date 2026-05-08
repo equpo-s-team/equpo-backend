@@ -31,13 +31,20 @@ export const toggleTaskStep: RequestHandler = async (req, res, next) => {
     const authenticatedActorUid = getActorUid(req);
 
     const result = await withTransaction(async client => {
-      const membership = await assertTeamMembership(client, parsedTeamId, authenticatedActorUid);
+      const membership = await assertTeamMembership(
+        client,
+        parsedTeamId,
+        authenticatedActorUid
+      );
       if (membership.role === 'spectator') {
-        const error = new EqupoError('Forbidden: spectators cannot perform this action');
+        const error = new EqupoError(
+          'Forbidden: spectators cannot perform this action'
+        );
         error.status = ERROR_STATUS.FORBIDDEN;
         throw error;
       }
-      const isLeaderOrCollab = membership.isLeader || membership.role === 'collaborator';
+      const isLeaderOrCollab =
+        membership.isLeader || membership.role === 'collaborator';
 
       const stepResult = await client.query(
         `SELECT ts.step, ts.is_done,
@@ -56,17 +63,25 @@ export const toggleTaskStep: RequestHandler = async (req, res, next) => {
       }
 
       const stepRow = stepResult.rows[0];
-      const hasAssignees = stepRow.assigned_user_uid !== null || stepRow.assigned_group_id !== null;
+      const hasAssignees =
+        stepRow.assigned_user_uid !== null ||
+        stepRow.assigned_group_id !== null;
 
       if (!isLeaderOrCollab && hasAssignees) {
         const isAssignedQuery = await client.query(
           `SELECT 1 WHERE $1::text = $3::text
            UNION
            SELECT 1 FROM public.group_membership WHERE group_id = $2 AND user_uid = $3`,
-          [stepRow.assigned_user_uid, stepRow.assigned_group_id, authenticatedActorUid]
+          [
+            stepRow.assigned_user_uid,
+            stepRow.assigned_group_id,
+            authenticatedActorUid,
+          ]
         );
         if (!isAssignedQuery.rowCount) {
-          const error = new EqupoError('Forbidden: only assigned users can edit this task step');
+          const error = new EqupoError(
+            'Forbidden: only assigned users can edit this task step'
+          );
           error.status = ERROR_STATUS.FORBIDDEN;
           throw error;
         }
@@ -134,8 +149,10 @@ export const toggleTaskStep: RequestHandler = async (req, res, next) => {
             taskId: parsedTaskId,
             actorUid: authenticatedActorUid,
             taskPriority: (stepRow.priority as string) ?? 'medium',
-            assignedUserUid: (stepRow.assigned_user_uid as string | null) ?? null,
-            assignedGroupId: (stepRow.assigned_group_id as string | null) ?? null,
+            assignedUserUid:
+              (stepRow.assigned_user_uid as string | null) ?? null,
+            assignedGroupId:
+              (stepRow.assigned_group_id as string | null) ?? null,
           });
         } else if (taskStatus === 'done') {
           // Unchecking Supero Review → back to in-qa
@@ -192,7 +209,13 @@ export const toggleTaskStep: RequestHandler = async (req, res, next) => {
       }
 
       const allSteps = await fetchAllStepsForTask(client, parsedTaskId);
-      return { step: updatedStep.rows[0], newStatus, taskStatus, allSteps, completion };
+      return {
+        step: updatedStep.rows[0],
+        newStatus,
+        taskStatus,
+        allSteps,
+        completion,
+      };
     });
 
     if (result.newStatus !== result.taskStatus) {

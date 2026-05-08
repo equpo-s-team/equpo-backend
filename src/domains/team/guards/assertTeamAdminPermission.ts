@@ -10,7 +10,7 @@ import {
  * Verifies a team exists, the actor belongs to it, AND the actor's role
  * is 'leader' or 'collaborator'.
  *
- * Use this for administrative operations: managing members, groups, 
+ * Use this for administrative operations: managing members, groups,
  * rewards, and team settings.
  */
 export async function assertTeamAdminPermission(

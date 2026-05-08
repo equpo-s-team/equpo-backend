@@ -59,11 +59,14 @@ export async function grantTaskCompletionRewards({
   assignedGroupId,
 }: TaskCompletionInput): Promise<TaskCompletionResult> {
   const priority = taskPriority ?? 'medium';
-  const xpAmount = XP_REWARDS[priority as keyof typeof XP_REWARDS] ?? XP_REWARDS.medium;
+  const xpAmount =
+    XP_REWARDS[priority as keyof typeof XP_REWARDS] ?? XP_REWARDS.medium;
   const userCoinAmount = Math.floor(
-    (COIN_REWARDS[priority as keyof typeof COIN_REWARDS] ?? COIN_REWARDS.medium) / 2
+    (COIN_REWARDS[priority as keyof typeof COIN_REWARDS] ??
+      COIN_REWARDS.medium) / 2
   );
-  const teamCoinAmount = COIN_REWARDS[priority as keyof typeof COIN_REWARDS] ?? COIN_REWARDS.medium;
+  const teamCoinAmount =
+    COIN_REWARDS[priority as keyof typeof COIN_REWARDS] ?? COIN_REWARDS.medium;
 
   // Build the de-duplicated recipient list from assigned user + group members.
   // Fall back to the actor for unassigned tasks.

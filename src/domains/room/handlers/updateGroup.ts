@@ -33,7 +33,11 @@ export const updateGroup: RequestHandler = async (req, res, next) => {
 
     await withTransaction(async client => {
       // Allow leaders and collaborators to edit
-      await assertTeamAdminPermission(client, parsedTeamId, authenticatedActorUid);
+      await assertTeamAdminPermission(
+        client,
+        parsedTeamId,
+        authenticatedActorUid
+      );
       await assertGroupBelongsToTeam(client, parsedTeamId, groupId);
 
       // Update group details if provided

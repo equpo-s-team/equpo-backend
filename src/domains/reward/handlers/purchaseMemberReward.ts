@@ -38,7 +38,9 @@ export const purchaseMemberReward: RequestHandler = async (req, res, next) => {
 
       const reward = rewardResult.rows[0];
       if (reward.type !== 'member') {
-        const err = new EqupoError('This reward cannot be purchased with membership currency');
+        const err = new EqupoError(
+          'This reward cannot be purchased with membership currency'
+        );
         err.status = ERROR_STATUS.VALIDATION;
         throw err;
       }

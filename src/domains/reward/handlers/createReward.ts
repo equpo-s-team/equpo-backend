@@ -16,7 +16,11 @@ export const createReward: RequestHandler = async (req, res, next) => {
     const authenticatedActorUid = getActorUid(req);
 
     const reward = await withTransaction(async client => {
-      await assertTeamAdminPermission(client, parsedTeamId, authenticatedActorUid);
+      await assertTeamAdminPermission(
+        client,
+        parsedTeamId,
+        authenticatedActorUid
+      );
 
       const result = await client.query(
         `INSERT INTO public.reward

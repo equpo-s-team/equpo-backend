@@ -18,7 +18,11 @@ export const purchaseTeamReward: RequestHandler = async (req, res, next) => {
     const authenticatedActorUid = getActorUid(req);
 
     const result = await withTransaction(async client => {
-      await assertTeamLeaderPermission(client, parsedTeamId, authenticatedActorUid);
+      await assertTeamLeaderPermission(
+        client,
+        parsedTeamId,
+        authenticatedActorUid
+      );
 
       // Load reward and verify it belongs to this team and is type 'team'
       const rewardResult = await client.query(
@@ -37,7 +41,9 @@ export const purchaseTeamReward: RequestHandler = async (req, res, next) => {
 
       const reward = rewardResult.rows[0];
       if (reward.type !== 'team') {
-        const err = new EqupoError('This reward cannot be purchased with team currency');
+        const err = new EqupoError(
+          'This reward cannot be purchased with team currency'
+        );
         err.status = ERROR_STATUS.VALIDATION;
         throw err;
       }
@@ -86,7 +92,9 @@ export const purchaseTeamReward: RequestHandler = async (req, res, next) => {
             [xpAmount, row.user_uid]
           );
 
-          const newTotalXp = Number(userXpResult.rows[0]?.experience_points ?? 0);
+          const newTotalXp = Number(
+            userXpResult.rows[0]?.experience_points ?? 0
+          );
           const newLevel = calculateLevel(newTotalXp);
           const oldLevel = Number(userXpResult.rows[0]?.level ?? 0);
           if (newLevel > oldLevel) {

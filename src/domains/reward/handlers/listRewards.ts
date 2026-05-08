@@ -12,11 +12,12 @@ export const listRewards: RequestHandler = async (req, res, next) => {
     const parsedTeamId = teamId;
     const authenticatedActorUid = getActorUid(req);
 
-    const { rewards, myMembershipCurrency } = await withTransaction(async client => {
-      await assertTeamMembership(client, parsedTeamId, authenticatedActorUid);
+    const { rewards, myMembershipCurrency } = await withTransaction(
+      async client => {
+        await assertTeamMembership(client, parsedTeamId, authenticatedActorUid);
 
-      const rewardsResult = await client.query(
-        `SELECT r.id,
+        const rewardsResult = await client.query(
+          `SELECT r.id,
                 r.name,
                 r.cost,
                 r.experience_granted   AS "experienceGranted",
@@ -43,21 +44,23 @@ export const listRewards: RequestHandler = async (req, res, next) => {
              ON tr.reward_id = r.id AND tr.team_id = $1
            WHERE r.team_id = $1
            ORDER BY r.created_at DESC`,
-        [parsedTeamId]
-      );
+          [parsedTeamId]
+        );
 
-      const membershipResult = await client.query(
-        `SELECT virtual_currency AS "virtualCurrency"
+        const membershipResult = await client.query(
+          `SELECT virtual_currency AS "virtualCurrency"
            FROM public.team_membership
            WHERE team_id = $1 AND user_uid = $2
            LIMIT 1`,
-        [parsedTeamId, authenticatedActorUid]
-      );
+          [parsedTeamId, authenticatedActorUid]
+        );
 
-      const myMembershipCurrency = membershipResult.rows[0]?.virtualCurrency ?? null;
+        const myMembershipCurrency =
+          membershipResult.rows[0]?.virtualCurrency ?? null;
 
-      return { rewards: rewardsResult.rows, myMembershipCurrency };
-    });
+        return { rewards: rewardsResult.rows, myMembershipCurrency };
+      }
+    );
 
     logEndpointAudit({
       operation: 'teams.rewards.list',

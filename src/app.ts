@@ -148,12 +148,42 @@ api.delete('/teams/:teamId', requireUser, userRateLimit, deleteTeam);
 // ── Shop / Rewards ────────────────────────────────────────────────────────────
 api.get('/teams/:teamId/rewards', requireUser, userRateLimit, listRewards);
 api.post('/teams/:teamId/rewards', requireUser, userRateLimit, createReward);
-api.patch('/teams/:teamId/rewards/:rewardId', requireUser, userRateLimit, updateReward);
-api.delete('/teams/:teamId/rewards/:rewardId', requireUser, userRateLimit, deleteReward);
-api.post('/teams/:teamId/rewards/:rewardId/purchase-team', requireUser, userRateLimit, purchaseTeamReward);
-api.post('/teams/:teamId/rewards/:rewardId/purchase-member', requireUser, userRateLimit, purchaseMemberReward);
-api.post('/teams/:teamId/rewards/:rewardId/redeem-team', requireUser, userRateLimit, redeemTeamReward);
-api.post('/teams/:teamId/users/:userUid/rewards/:rewardId/redeem', requireUser, userRateLimit, redeemMemberReward);
+api.patch(
+  '/teams/:teamId/rewards/:rewardId',
+  requireUser,
+  userRateLimit,
+  updateReward
+);
+api.delete(
+  '/teams/:teamId/rewards/:rewardId',
+  requireUser,
+  userRateLimit,
+  deleteReward
+);
+api.post(
+  '/teams/:teamId/rewards/:rewardId/purchase-team',
+  requireUser,
+  userRateLimit,
+  purchaseTeamReward
+);
+api.post(
+  '/teams/:teamId/rewards/:rewardId/purchase-member',
+  requireUser,
+  userRateLimit,
+  purchaseMemberReward
+);
+api.post(
+  '/teams/:teamId/rewards/:rewardId/redeem-team',
+  requireUser,
+  userRateLimit,
+  redeemTeamReward
+);
+api.post(
+  '/teams/:teamId/users/:userUid/rewards/:rewardId/redeem',
+  requireUser,
+  userRateLimit,
+  redeemMemberReward
+);
 
 api.post(
   '/teams/:teamId/achievements/unlocks',
@@ -324,7 +354,11 @@ api.get(
   getMyValidTaskIds
 );
 
-api.post('/internal/teams/:teamId/achievements', requireSystem, createAchievement);
+api.post(
+  '/internal/teams/:teamId/achievements',
+  requireSystem,
+  createAchievement
+);
 api.post('/internal/users/:userUid/rewards', requireSystem, grantSystemReward);
 
 api.post(

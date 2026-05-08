@@ -16,7 +16,11 @@ export const deleteReward: RequestHandler = async (req, res, next) => {
     const authenticatedActorUid = getActorUid(req);
 
     await withTransaction(async client => {
-      await assertTeamAdminPermission(client, parsedTeamId, authenticatedActorUid);
+      await assertTeamAdminPermission(
+        client,
+        parsedTeamId,
+        authenticatedActorUid
+      );
 
       const result = await client.query(
         `DELETE FROM public.reward WHERE team_id = $1 AND id = $2`,
