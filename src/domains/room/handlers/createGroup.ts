@@ -25,7 +25,11 @@ export const createGroup: RequestHandler = async (req, res, next) => {
     const authenticatedActorUid = getActorUid(req);
 
     const group = await withTransaction(async client => {
-      await assertTeamAdminPermission(client, parsedTeamId, authenticatedActorUid);
+      await assertTeamAdminPermission(
+        client,
+        parsedTeamId,
+        authenticatedActorUid
+      );
 
       const memberUids = input.memberUids ?? [];
 

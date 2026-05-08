@@ -24,7 +24,11 @@ export const inviteTeamMember: RequestHandler = async (req, res, next) => {
     const authenticatedActorUid = getActorUid(req);
 
     const membership = await withTransaction(async client => {
-      await assertTeamAdminPermission(client, parsedTeamId, authenticatedActorUid);
+      await assertTeamAdminPermission(
+        client,
+        parsedTeamId,
+        authenticatedActorUid
+      );
 
       let resolvedUid = input.userUid ?? null;
       if (!resolvedUid && input.email) {
@@ -49,8 +53,8 @@ export const inviteTeamMember: RequestHandler = async (req, res, next) => {
       }
 
       const result = await client.query(
-        `INSERT INTO public.team_membership (user_uid, team_id, role, joined_at)
-         VALUES ($1, $2, $3, NOW())
+        `INSERT INTO public.team_membership (user_uid, team_id, role, joined_at, virtual_currency)
+         VALUES ($1, $2, $3, NOW(), 0)
          ON CONFLICT (user_uid, team_id)
          DO NOTHING
          RETURNING user_uid, team_id, role`,
@@ -98,7 +102,8 @@ export const inviteTeamMember: RequestHandler = async (req, res, next) => {
         [membership.user_uid]
       );
       const displayName =
-        (userResult.rows[0]?.display_name as string | null) ?? membership.user_uid;
+        (userResult.rows[0]?.display_name as string | null) ??
+        membership.user_uid;
       await insertSystemMessage(
         parsedTeamId,
         generalGroupId,

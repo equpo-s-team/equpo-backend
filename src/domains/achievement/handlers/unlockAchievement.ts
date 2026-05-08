@@ -20,7 +20,11 @@ export const unlockAchievement: RequestHandler = async (req, res, next) => {
     const authenticatedActorUid = getActorUid(req);
 
     const userAchievement = await withTransaction(async client => {
-      await assertTeamAdminPermission(client, parsedTeamId, authenticatedActorUid);
+      await assertTeamAdminPermission(
+        client,
+        parsedTeamId,
+        authenticatedActorUid
+      );
       await assertUserBelongsToTeam(client, parsedTeamId, input.userUid);
 
       const achievementResult = await client.query(

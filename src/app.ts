@@ -3,8 +3,15 @@ import { config } from '#a/config.js';
 import { createAchievement } from '#a/domains/achievement/handlers/createAchievement.js';
 import { getAchievements } from '#a/domains/achievement/handlers/getAchievements.js';
 import { unlockAchievement } from '#a/domains/achievement/handlers/unlockAchievement.js';
-import { createTeamReward } from '#a/domains/reward/handlers/createTeamReward.js';
 import { grantSystemReward } from '#a/domains/reward/handlers/grantSystemReward.js';
+import { listRewards } from '#a/domains/reward/handlers/listRewards.js';
+import { createReward } from '#a/domains/reward/handlers/createReward.js';
+import { updateReward } from '#a/domains/reward/handlers/updateReward.js';
+import { deleteReward } from '#a/domains/reward/handlers/deleteReward.js';
+import { purchaseTeamReward } from '#a/domains/reward/handlers/purchaseTeamReward.js';
+import { purchaseMemberReward } from '#a/domains/reward/handlers/purchaseMemberReward.js';
+import { redeemTeamReward } from '#a/domains/reward/handlers/redeemTeamReward.js';
+import { redeemMemberReward } from '#a/domains/reward/handlers/redeemMemberReward.js';
 import { addGroupMembers } from '#a/domains/room/handlers/addGroupMembers.js';
 import { createGroup } from '#a/domains/room/handlers/createGroup.js';
 import { deleteGroup } from '#a/domains/room/handlers/deleteGroup.js';
@@ -138,12 +145,44 @@ api.delete(
 // ── DELETE /teams/:teamId ── Delete the entire team ──────────────────────────
 api.delete('/teams/:teamId', requireUser, userRateLimit, deleteTeam);
 
-api.post(
-  '/teams/:teamId/rewards',
-
+// ── Shop / Rewards ────────────────────────────────────────────────────────────
+api.get('/teams/:teamId/rewards', requireUser, userRateLimit, listRewards);
+api.post('/teams/:teamId/rewards', requireUser, userRateLimit, createReward);
+api.patch(
+  '/teams/:teamId/rewards/:rewardId',
   requireUser,
   userRateLimit,
-  createTeamReward
+  updateReward
+);
+api.delete(
+  '/teams/:teamId/rewards/:rewardId',
+  requireUser,
+  userRateLimit,
+  deleteReward
+);
+api.post(
+  '/teams/:teamId/rewards/:rewardId/purchase-team',
+  requireUser,
+  userRateLimit,
+  purchaseTeamReward
+);
+api.post(
+  '/teams/:teamId/rewards/:rewardId/purchase-member',
+  requireUser,
+  userRateLimit,
+  purchaseMemberReward
+);
+api.post(
+  '/teams/:teamId/rewards/:rewardId/redeem-team',
+  requireUser,
+  userRateLimit,
+  redeemTeamReward
+);
+api.post(
+  '/teams/:teamId/users/:userUid/rewards/:rewardId/redeem',
+  requireUser,
+  userRateLimit,
+  redeemMemberReward
 );
 
 api.post(
@@ -315,7 +354,11 @@ api.get(
   getMyValidTaskIds
 );
 
-api.post('/internal/teams/:teamId/achievements', requireSystem, createAchievement);
+api.post(
+  '/internal/teams/:teamId/achievements',
+  requireSystem,
+  createAchievement
+);
 api.post('/internal/users/:userUid/rewards', requireSystem, grantSystemReward);
 
 api.post(

@@ -17,7 +17,11 @@ export const deleteGroup: RequestHandler = async (req, res, next) => {
 
     await withTransaction(async client => {
       // Allow leaders and collaborators to delete
-      await assertTeamAdminPermission(client, parsedTeamId, authenticatedActorUid);
+      await assertTeamAdminPermission(
+        client,
+        parsedTeamId,
+        authenticatedActorUid
+      );
       await assertGroupBelongsToTeam(client, parsedTeamId, groupId);
 
       // Delete group memberships first

@@ -4,6 +4,8 @@ import {
   patchStepsInFirestore,
   patchTaskStatusInFirestore,
 } from '#a/domains/task/firestore/index.js';
+import { grantTaskCompletionRewards } from '#a/domains/task/helpers/grantTaskCompletionRewards.js';
+import type { TaskCompletionResult } from '#a/domains/task/helpers/grantTaskCompletionRewards.js';
 import {
   taskStepParam,
   toggleTaskStepSchema,
@@ -29,17 +31,24 @@ export const toggleTaskStep: RequestHandler = async (req, res, next) => {
     const authenticatedActorUid = getActorUid(req);
 
     const result = await withTransaction(async client => {
-      const membership = await assertTeamMembership(client, parsedTeamId, authenticatedActorUid);
+      const membership = await assertTeamMembership(
+        client,
+        parsedTeamId,
+        authenticatedActorUid
+      );
       if (membership.role === 'spectator') {
-        const error = new EqupoError('Forbidden: spectators cannot perform this action');
+        const error = new EqupoError(
+          'Forbidden: spectators cannot perform this action'
+        );
         error.status = ERROR_STATUS.FORBIDDEN;
         throw error;
       }
-      const isLeaderOrCollab = membership.isLeader || membership.role === 'collaborator';
+      const isLeaderOrCollab =
+        membership.isLeader || membership.role === 'collaborator';
 
       const stepResult = await client.query(
         `SELECT ts.step, ts.is_done,
-                  t.status, t.assigned_user_uid, t.assigned_group_id
+                  t.status, t.priority, t.assigned_user_uid, t.assigned_group_id
            FROM public.task_step ts
            JOIN public.task t ON t.id = ts.task_id
            WHERE ts.step = $1 AND ts.task_id = $2 AND t.team_id = $3
@@ -54,17 +63,25 @@ export const toggleTaskStep: RequestHandler = async (req, res, next) => {
       }
 
       const stepRow = stepResult.rows[0];
-      const hasAssignees = stepRow.assigned_user_uid !== null || stepRow.assigned_group_id !== null;
+      const hasAssignees =
+        stepRow.assigned_user_uid !== null ||
+        stepRow.assigned_group_id !== null;
 
       if (!isLeaderOrCollab && hasAssignees) {
         const isAssignedQuery = await client.query(
           `SELECT 1 WHERE $1::text = $3::text
            UNION
            SELECT 1 FROM public.group_membership WHERE group_id = $2 AND user_uid = $3`,
-          [stepRow.assigned_user_uid, stepRow.assigned_group_id, authenticatedActorUid]
+          [
+            stepRow.assigned_user_uid,
+            stepRow.assigned_group_id,
+            authenticatedActorUid,
+          ]
         );
         if (!isAssignedQuery.rowCount) {
-          const error = new EqupoError('Forbidden: only assigned users can edit this task step');
+          const error = new EqupoError(
+            'Forbidden: only assigned users can edit this task step'
+          );
           error.status = ERROR_STATUS.FORBIDDEN;
           throw error;
         }
@@ -116,6 +133,7 @@ export const toggleTaskStep: RequestHandler = async (req, res, next) => {
       );
 
       let newStatus: string = taskStatus;
+      let completion: TaskCompletionResult | null = null;
 
       if (isSuperoReview) {
         if (input.isDone) {
@@ -125,6 +143,17 @@ export const toggleTaskStep: RequestHandler = async (req, res, next) => {
             `UPDATE public.task SET status = 'done' WHERE id = $1`,
             [parsedTaskId]
           );
+          completion = await grantTaskCompletionRewards({
+            client,
+            teamId: parsedTeamId,
+            taskId: parsedTaskId,
+            actorUid: authenticatedActorUid,
+            taskPriority: (stepRow.priority as string) ?? 'medium',
+            assignedUserUid:
+              (stepRow.assigned_user_uid as string | null) ?? null,
+            assignedGroupId:
+              (stepRow.assigned_group_id as string | null) ?? null,
+          });
         } else if (taskStatus === 'done') {
           // Unchecking Supero Review → back to in-qa
           newStatus = 'in-qa';
@@ -180,7 +209,13 @@ export const toggleTaskStep: RequestHandler = async (req, res, next) => {
       }
 
       const allSteps = await fetchAllStepsForTask(client, parsedTaskId);
-      return { step: updatedStep.rows[0], newStatus, taskStatus, allSteps };
+      return {
+        step: updatedStep.rows[0],
+        newStatus,
+        taskStatus,
+        allSteps,
+        completion,
+      };
     });
 
     if (result.newStatus !== result.taskStatus) {
@@ -199,7 +234,18 @@ export const toggleTaskStep: RequestHandler = async (req, res, next) => {
       teamId: parsedTeamId,
       taskId: parsedTaskId,
     });
-    return res.json({ step: result.step, newStatus: result.newStatus });
+
+    const response: Record<string, unknown> = {
+      step: result.step,
+      newStatus: result.newStatus,
+    };
+    if (result.completion) {
+      response.xpReward = result.completion.xpReward;
+      if (result.completion.unlockedAchievements.length > 0) {
+        response.unlockedAchievements = result.completion.unlockedAchievements;
+      }
+    }
+    return res.json(response);
   } catch (error) {
     logEndpointAudit({
       operation: 'tasks.steps.toggle',

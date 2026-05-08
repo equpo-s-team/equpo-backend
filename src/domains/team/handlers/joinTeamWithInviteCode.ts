@@ -92,8 +92,8 @@ export const joinTeamWithInviteCode: RequestHandler = async (
     // Añadir al usuario al equipo usando transacción
     const membership = await withTransaction(async client => {
       const result = await client.query(
-        `INSERT INTO public.team_membership (user_uid, team_id, role, joined_at)
-         VALUES ($1, $2, $3, NOW())
+        `INSERT INTO public.team_membership (user_uid, team_id, role, joined_at, virtual_currency)
+         VALUES ($1, $2, $3, NOW(), 0)
          RETURNING user_uid, team_id, role`,
         [authenticatedActorUid, teamId, invitationData.role]
       );
