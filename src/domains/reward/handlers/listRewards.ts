@@ -40,8 +40,13 @@ export const listRewards: RequestHandler = async (req, res, next) => {
                  WHERE ur.reward_id = r.id
                 ) AS "memberLedger"
            FROM public.reward r
-           LEFT JOIN public.team_reward tr
-             ON tr.reward_id = r.id AND tr.team_id = $1
+           LEFT JOIN LATERAL (
+             SELECT date_obtained, redeemed_at
+               FROM public.team_reward
+              WHERE reward_id = r.id AND team_id = $1
+              ORDER BY date_obtained DESC
+              LIMIT 1
+           ) tr ON true
            WHERE r.team_id = $1
            ORDER BY r.created_at DESC`,
           [parsedTeamId]

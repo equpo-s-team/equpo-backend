@@ -64,12 +64,10 @@ export const purchaseTeamReward: RequestHandler = async (req, res, next) => {
         throw err;
       }
 
-      // Upsert team_reward row (re-buy after redemption resets the row)
+      // Insert a new team_reward row for each purchase cycle
       const teamRewardResult = await client.query(
-        `INSERT INTO public.team_reward (team_id, reward_id, date_obtained, redeemed_at, created_at, updated_at)
-         VALUES ($1, $2, NOW(), NULL, NOW(), NOW())
-         ON CONFLICT (team_id, reward_id)
-         DO UPDATE SET date_obtained = NOW(), redeemed_at = NULL, updated_at = NOW()
+        `INSERT INTO public.team_reward (team_id, reward_id, date_obtained, created_at, updated_at)
+         VALUES ($1, $2, NOW(), NOW(), NOW())
          RETURNING team_id, reward_id, date_obtained AS "dateObtained", redeemed_at AS "redeemedAt"`,
         [parsedTeamId, rewardId]
       );
