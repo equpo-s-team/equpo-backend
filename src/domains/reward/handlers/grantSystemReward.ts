@@ -10,13 +10,18 @@ export const grantSystemReward: RequestHandler = async (req, res, next) => {
     userUid = String(req.params.userUid ?? '');
 
     const userReward = await withTransaction(async client => {
+      const rewardRow = await client.query(
+        `SELECT team_id FROM public.reward WHERE id = $1 LIMIT 1`,
+        [input.rewardId]
+      );
+      if (!rewardRow.rowCount) throw Object.assign(new Error('Reward not found'), { status: 404 });
+      const teamId = rewardRow.rows[0].team_id;
+
       const result = await client.query(
-        `INSERT INTO public.user_reward (user_uid, reward_id, date_obtained, created_at, updated_at)
-         VALUES ($1, $2, COALESCE($3::timestamptz, NOW()), NOW(), NOW())
-         ON CONFLICT (user_uid, reward_id)
-         DO UPDATE SET updated_at = NOW()
-         RETURNING user_uid, reward_id, date_obtained, updated_at`,
-        [userUid, input.rewardId, input.dateObtained ?? null]
+        `INSERT INTO public.user_reward (user_uid, reward_id, team_id, date_obtained, created_at, updated_at)
+         VALUES ($1, $2, $3, COALESCE($4::timestamptz, NOW()), NOW(), NOW())
+         RETURNING user_uid, reward_id, team_id, date_obtained, updated_at`,
+        [userUid, input.rewardId, teamId, input.dateObtained ?? null]
       );
       return result.rows[0];
     });
