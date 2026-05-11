@@ -38,7 +38,9 @@ export const getReportsKpiHandler: RequestHandler = async (req, res, next) => {
         `SELECT environment_health FROM public.team WHERE id = $1 LIMIT 1`,
         [parsedTeamId]
       );
-      const environmentHealth = Number(teamResult.rows[0]?.environment_health ?? 60);
+      const environmentHealth = Number(
+        teamResult.rows[0]?.environment_health ?? 60
+      );
 
       return {
         kpi,
