@@ -26,7 +26,11 @@ export const addGroupMembers: RequestHandler = async (req, res, next) => {
     const authenticatedActorUid = getActorUid(req);
 
     await withTransaction(async client => {
-      await assertTeamAdminPermission(client, parsedTeamId, authenticatedActorUid);
+      await assertTeamAdminPermission(
+        client,
+        parsedTeamId,
+        authenticatedActorUid
+      );
       await assertGroupBelongsToTeam(client, parsedTeamId, groupId);
 
       const countResult = await client.query(

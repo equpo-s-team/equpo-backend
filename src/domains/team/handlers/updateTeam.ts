@@ -24,7 +24,11 @@ export const updateTeam: RequestHandler = async (req, res, next) => {
     }
 
     const team = await withTransaction(async client => {
-      await assertTeamAdminPermission(client, parsedTeamId, authenticatedActorUid);
+      await assertTeamAdminPermission(
+        client,
+        parsedTeamId,
+        authenticatedActorUid
+      );
 
       const updates: string[] = [];
       const values: Array<string | number | null> = [];
