@@ -14,6 +14,7 @@ import { assertTeamPermission } from '#a/domains/team/guards/index.js';
 import { EqupoError } from '#a/types/EqupoError.js';
 import { assertBody, getActorUid, logEndpointAudit } from '#a/utils/index.js';
 import { RequestHandler } from 'express';
+import {HEALTH_REWARDS} from "#a/domains/user/xpUtils.js";
 
 export const updateTask: RequestHandler = async (req, res, next) => {
   const actorUid = req.user?.uid ?? null;
