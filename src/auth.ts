@@ -19,6 +19,17 @@ export const requireUser: RequestHandler = async (
     }
 
     const decoded = await getFirebaseAuth().verifyIdToken(token);
+
+    // Reject password-provider accounts that haven't verified their email yet.
+    // Google and other federated providers are exempt — their identity is already
+    // confirmed by the external provider.
+    const provider = decoded.firebase?.sign_in_provider;
+    if (provider === 'password' && decoded.email_verified !== true) {
+      return res
+        .status(ERROR_STATUS.FORBIDDEN)
+        .json({ error: 'Email not verified', code: 'auth/email-not-verified' });
+    }
+
     req.user = { uid: decoded.uid, claims: decoded };
     return next();
   } catch (error: unknown) {

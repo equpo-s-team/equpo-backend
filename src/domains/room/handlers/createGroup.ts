@@ -7,7 +7,7 @@ import {
 } from '#a/domains/room/firestore/index.js';
 import { createGroupSchema } from '#a/domains/room/schemas/index.js';
 import {
-  assertTeamPermission,
+  assertTeamAdminPermission,
   assertUserBelongsToTeam,
 } from '#a/domains/team/guards/index.js';
 import { teamIdParam } from '#a/domains/team/schemas/index.js';
@@ -25,7 +25,11 @@ export const createGroup: RequestHandler = async (req, res, next) => {
     const authenticatedActorUid = getActorUid(req);
 
     const group = await withTransaction(async client => {
-      await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
+      await assertTeamAdminPermission(
+        client,
+        parsedTeamId,
+        authenticatedActorUid
+      );
 
       const memberUids = input.memberUids ?? [];
 

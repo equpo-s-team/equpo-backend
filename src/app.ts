@@ -3,8 +3,15 @@ import { config } from '#a/config.js';
 import { createAchievement } from '#a/domains/achievement/handlers/createAchievement.js';
 import { getAchievements } from '#a/domains/achievement/handlers/getAchievements.js';
 import { unlockAchievement } from '#a/domains/achievement/handlers/unlockAchievement.js';
-import { createTeamReward } from '#a/domains/reward/handlers/createTeamReward.js';
 import { grantSystemReward } from '#a/domains/reward/handlers/grantSystemReward.js';
+import { listRewards } from '#a/domains/reward/handlers/listRewards.js';
+import { createReward } from '#a/domains/reward/handlers/createReward.js';
+import { updateReward } from '#a/domains/reward/handlers/updateReward.js';
+import { deleteReward } from '#a/domains/reward/handlers/deleteReward.js';
+import { purchaseTeamReward } from '#a/domains/reward/handlers/purchaseTeamReward.js';
+import { purchaseMemberReward } from '#a/domains/reward/handlers/purchaseMemberReward.js';
+import { redeemTeamReward } from '#a/domains/reward/handlers/redeemTeamReward.js';
+import { redeemMemberReward } from '#a/domains/reward/handlers/redeemMemberReward.js';
 import { addGroupMembers } from '#a/domains/room/handlers/addGroupMembers.js';
 import { createGroup } from '#a/domains/room/handlers/createGroup.js';
 import { deleteGroup } from '#a/domains/room/handlers/deleteGroup.js';
@@ -28,15 +35,22 @@ import { toggleTaskStep } from '#a/domains/task/handlers/toggleTaskStep.js';
 import { updateTask } from '#a/domains/task/handlers/updateTask.js';
 import { updateTaskCommentary } from '#a/domains/task/handlers/updateTaskCommentary.js';
 import { updateTaskStep } from '#a/domains/task/handlers/updateTaskStep.js';
+import { createInvitationCode } from '#a/domains/team/handlers/createInvitationCode.js';
 import { createTeam } from '#a/domains/team/handlers/createTeam.js';
 import { deleteTeam } from '#a/domains/team/handlers/deleteTeam.js';
 import { getMyTeams } from '#a/domains/team/handlers/getMyTeams.js';
+import { getTeamInvitePreview } from '#a/domains/team/handlers/getTeamInvitePreview.js';
 import { getTeamMembers } from '#a/domains/team/handlers/getTeamMembers.js';
 import { inviteTeamMember } from '#a/domains/team/handlers/inviteTeamMember.js';
+import { joinTeamWithInviteCode } from '#a/domains/team/handlers/joinTeamWithInviteCode.js';
 import { removeTeamMember } from '#a/domains/team/handlers/removeTeamMember.js';
 import { updateTeam } from '#a/domains/team/handlers/updateTeam.js';
 import { updateTeamMemberRole } from '#a/domains/team/handlers/updateTeamMemberRole.js';
+import { getQuote } from '#a/domains/quotes/handlers/getQuote.js';
+import { environmentInteract } from '#a/domains/team/handlers/environmentInteract.js';
+import { getProfile } from '#a/domains/user/handlers/getProfile.js';
 import { mirrorAvatar } from '#a/domains/user/handlers/mirrorAvatar.js';
+import { getUserPreview } from '#a/domains/user/handlers/getUserPreview.js';
 import { generateDescriptionHandler } from '#a/domains/ai/handlers/generateDescription.js';
 import { requireSystem } from '#a/systemAuth.js';
 import { EqupoError } from '#a/types/EqupoError.js';
@@ -79,11 +93,51 @@ api.get('/health', (_req, res) => {
   res.json({ ok: true, prefix: config.apiPrefix });
 });
 
+api.get('/quotes/random', requireUser, userRateLimit, getQuote);
+
 api.get('/teams/me', requireUser, getMyTeams);
 
+// ── GET /teams/invite-preview ── Preview team info from invite code ────────
+api.get(
+  '/teams/invite-preview',
+  requireUser,
+  userRateLimit,
+  getTeamInvitePreview
+);
+
+api.get('/users/me/profile', requireUser, getProfile);
+api.get('/users/me/profile', requireUser, getProfile);
 api.post('/users/me/avatar/mirror', requireUser, userRateLimit, mirrorAvatar);
 
+api.post(
+  '/teams/:teamId/environment/interact',
+  requireUser,
+  userRateLimit,
+  environmentInteract
+);
+
+api.post(
+  '/teams/:teamId/environment/interact',
+  requireUser,
+  userRateLimit,
+  environmentInteract
+);
+
+// ── GET /users/preview ── Preview user info by UID ───────────────────────────
+api.get('/users/preview', requireUser, userRateLimit, getUserPreview);
+
 api.post('/teams', requireUser, userRateLimit, createTeam);
+
+// ── POST /teams/:teamId/invitation-codes ── Create invitation code ──────────
+api.post(
+  '/teams/:teamId/invitation-codes',
+  requireUser,
+  userRateLimit,
+  createInvitationCode
+);
+
+// ── POST /teams/join ── Join a team using an invitation code ────────────────
+api.post('/teams/join', requireUser, userRateLimit, joinTeamWithInviteCode);
 
 api.patch('/teams/:teamId', requireUser, userRateLimit, updateTeam);
 
@@ -112,19 +166,44 @@ api.delete(
 // ── DELETE /teams/:teamId ── Delete the entire team ──────────────────────────
 api.delete('/teams/:teamId', requireUser, userRateLimit, deleteTeam);
 
-api.post(
-  '/teams/:teamId/rewards',
-
+// ── Shop / Rewards ────────────────────────────────────────────────────────────
+api.get('/teams/:teamId/rewards', requireUser, userRateLimit, listRewards);
+api.post('/teams/:teamId/rewards', requireUser, userRateLimit, createReward);
+api.patch(
+  '/teams/:teamId/rewards/:rewardId',
   requireUser,
   userRateLimit,
-  createTeamReward
+  updateReward
 );
-
-api.post(
-  '/teams/:teamId/achievements',
+api.delete(
+  '/teams/:teamId/rewards/:rewardId',
   requireUser,
   userRateLimit,
-  createAchievement
+  deleteReward
+);
+api.post(
+  '/teams/:teamId/rewards/:rewardId/purchase-team',
+  requireUser,
+  userRateLimit,
+  purchaseTeamReward
+);
+api.post(
+  '/teams/:teamId/rewards/:rewardId/purchase-member',
+  requireUser,
+  userRateLimit,
+  purchaseMemberReward
+);
+api.post(
+  '/teams/:teamId/rewards/:rewardId/redeem-team',
+  requireUser,
+  userRateLimit,
+  redeemTeamReward
+);
+api.post(
+  '/teams/:teamId/users/:userUid/rewards/:rewardId/redeem',
+  requireUser,
+  userRateLimit,
+  redeemMemberReward
 );
 
 api.post(
@@ -296,6 +375,11 @@ api.get(
   getMyValidTaskIds
 );
 
+api.post(
+  '/internal/teams/:teamId/achievements',
+  requireSystem,
+  createAchievement
+);
 api.post('/internal/users/:userUid/rewards', requireSystem, grantSystemReward);
 
 api.post(

@@ -3,7 +3,7 @@ import { withTransaction } from '#a/db.js';
 import { deleteChatRoomFromFirestore } from '#a/domains/room/firestore/index.js';
 import { groupIdParam } from '#a/domains/room/schemas/index.js';
 import { assertGroupBelongsToTeam } from '#a/domains/task/guards/index.js';
-import { assertTeamPermission } from '#a/domains/team/guards/index.js';
+import { assertTeamAdminPermission } from '#a/domains/team/guards/index.js';
 import { getActorUid, logEndpointAudit } from '#a/utils/index.js';
 import { RequestHandler } from 'express';
 
@@ -17,7 +17,11 @@ export const deleteGroup: RequestHandler = async (req, res, next) => {
 
     await withTransaction(async client => {
       // Allow leaders and collaborators to delete
-      await assertTeamPermission(client, parsedTeamId, authenticatedActorUid);
+      await assertTeamAdminPermission(
+        client,
+        parsedTeamId,
+        authenticatedActorUid
+      );
       await assertGroupBelongsToTeam(client, parsedTeamId, groupId);
 
       // Delete group memberships first

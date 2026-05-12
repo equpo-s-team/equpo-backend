@@ -47,4 +47,7 @@ export const config = {
   groqApiKey: process.env.GROQ_API_KEY || '',
   groqBaseUrl: process.env.GROQ_BASE_URL || 'https://api.groq.com',
   groqModel: process.env.GROQ_MODEL || 'groq/compound',
+  apiNinjasKey: required('API_NINJAS_KEY'),
+  redisHost: process.env.REDIS_HOST || '127.0.0.1',
+  redisPort: positiveNumber('REDIS_PORT', 6379),
 };
