@@ -20,10 +20,16 @@ before(() => {
   baseUrl = `http://127.0.0.1:${port}${process.env.API_PREFIX}`;
 });
 
-after(() => {
+after(async () => {
   if (server) {
     server.close();
   }
+  const { redisClient, pubClient, subClient } = await import('../dist/utils/redisClient.js');
+  await Promise.all([
+    redisClient.quit(),
+    pubClient.quit(),
+    subClient.quit(),
+  ]);
 });
 
 test('HTTP integration: POST /teams/:teamId/tasks rejects missing Authorization header', async () => {

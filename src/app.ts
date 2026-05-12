@@ -46,6 +46,9 @@ import { joinTeamWithInviteCode } from '#a/domains/team/handlers/joinTeamWithInv
 import { removeTeamMember } from '#a/domains/team/handlers/removeTeamMember.js';
 import { updateTeam } from '#a/domains/team/handlers/updateTeam.js';
 import { updateTeamMemberRole } from '#a/domains/team/handlers/updateTeamMemberRole.js';
+import { getQuote } from '#a/domains/quotes/handlers/getQuote.js';
+import { environmentInteract } from '#a/domains/team/handlers/environmentInteract.js';
+import { getProfile } from '#a/domains/user/handlers/getProfile.js';
 import { mirrorAvatar } from '#a/domains/user/handlers/mirrorAvatar.js';
 import { getUserPreview } from '#a/domains/user/handlers/getUserPreview.js';
 import { generateDescriptionHandler } from '#a/domains/ai/handlers/generateDescription.js';
@@ -90,6 +93,8 @@ api.get('/health', (_req, res) => {
   res.json({ ok: true, prefix: config.apiPrefix });
 });
 
+api.get('/quotes/random', requireUser, userRateLimit, getQuote);
+
 api.get('/teams/me', requireUser, getMyTeams);
 
 // ── GET /teams/invite-preview ── Preview team info from invite code ────────
@@ -100,7 +105,23 @@ api.get(
   getTeamInvitePreview
 );
 
+api.get('/users/me/profile', requireUser, getProfile);
+api.get('/users/me/profile', requireUser, getProfile);
 api.post('/users/me/avatar/mirror', requireUser, userRateLimit, mirrorAvatar);
+
+api.post(
+  '/teams/:teamId/environment/interact',
+  requireUser,
+  userRateLimit,
+  environmentInteract
+);
+
+api.post(
+  '/teams/:teamId/environment/interact',
+  requireUser,
+  userRateLimit,
+  environmentInteract
+);
 
 // ── GET /users/preview ── Preview user info by UID ───────────────────────────
 api.get('/users/preview', requireUser, userRateLimit, getUserPreview);

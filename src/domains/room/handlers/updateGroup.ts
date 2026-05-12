@@ -40,7 +40,6 @@ export const updateGroup: RequestHandler = async (req, res, next) => {
       );
       await assertGroupBelongsToTeam(client, parsedTeamId, groupId);
 
-      // Update group details if provided
       if (input.name !== undefined || input.photoUrl !== undefined) {
         const updates: string[] = [];
         const values: Array<string | null> = [];

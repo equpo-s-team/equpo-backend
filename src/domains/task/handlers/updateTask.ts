@@ -14,6 +14,7 @@ import { assertTeamPermission } from '#a/domains/team/guards/index.js';
 import { EqupoError } from '#a/types/EqupoError.js';
 import { assertBody, getActorUid, logEndpointAudit } from '#a/utils/index.js';
 import { RequestHandler } from 'express';
+import { HEALTH_REWARDS } from '#a/domains/user/xpUtils.js';
 
 export const updateTask: RequestHandler = async (req, res, next) => {
   const actorUid = req.user?.uid ?? null;
@@ -173,7 +174,7 @@ export const updateTask: RequestHandler = async (req, res, next) => {
         }
       }
 
-      // Uncheck "Supero Review" when moving status backward from 'done'
+      // Uncheck "Supero Review" and penalise environment health when moving backward from 'done'
       if (
         input.status !== undefined &&
         existingTask.status === 'done' &&
@@ -184,6 +185,18 @@ export const updateTask: RequestHandler = async (req, res, next) => {
              SET is_done = false, updated_at = NOW()
              WHERE task_id = $1 AND step = 'Supero Review'`,
           [parsedTaskId]
+        );
+
+        const undoHealthDelta =
+          HEALTH_REWARDS[
+            (existingTask.priority as keyof typeof HEALTH_REWARDS) ?? 'medium'
+          ] ?? HEALTH_REWARDS.medium;
+        await client.query(
+          `UPDATE public.team
+             SET environment_health = GREATEST(environment_health - $1, 0),
+                 updated_at = NOW()
+             WHERE id = $2`,
+          [undoHealthDelta, parsedTeamId]
         );
       }
 

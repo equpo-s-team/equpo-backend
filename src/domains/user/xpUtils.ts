@@ -22,6 +22,13 @@ export const COIN_REWARDS: Record<TaskPriorityKey, number> = {
   low: 10,
 } as const;
 
+/** Environment health delta applied when a task is completed (or reversed when unmarked). */
+export const HEALTH_REWARDS: Record<TaskPriorityKey, number> = {
+  high: 5,
+  medium: 3,
+  low: 1,
+} as const;
+
 const BASE_XP = 100;
 const GROWTH_FACTOR = 1.5;
 
