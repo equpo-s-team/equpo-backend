@@ -1,5 +1,4 @@
 version: '3.8'
-
 services:
   redis:
     image: redis:alpine
@@ -9,7 +8,18 @@ services:
     volumes:
       - redis_data:/data
     restart: unless-stopped
-    command: redis-server --appendonly yes
-
+  backend:
+    volumes:
+      - ${GOOGLE_APPLICATION_CREDENTIALS}:/app/secrets/service-account.json:ro
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/service-account.json
+      - REDIS_HOST=redis
+    build: .
+    container_name: equpo_backend
+    ports:
+      - "8080:8080"
+    env_file: .env
+    depends_on:
+      - redis
 volumes:
   redis_data:
