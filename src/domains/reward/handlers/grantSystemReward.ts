@@ -14,7 +14,8 @@ export const grantSystemReward: RequestHandler = async (req, res, next) => {
         `SELECT team_id FROM public.reward WHERE id = $1 LIMIT 1`,
         [input.rewardId]
       );
-      if (!rewardRow.rowCount) throw Object.assign(new Error('Reward not found'), { status: 404 });
+      if (!rewardRow.rowCount)
+        throw Object.assign(new Error('Reward not found'), { status: 404 });
       const teamId = rewardRow.rows[0].team_id;
 
       const result = await client.query(

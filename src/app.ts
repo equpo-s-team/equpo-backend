@@ -109,9 +109,19 @@ api.get('/users/me/profile', requireUser, getProfile);
 api.get('/users/me/profile', requireUser, getProfile);
 api.post('/users/me/avatar/mirror', requireUser, userRateLimit, mirrorAvatar);
 
-api.post('/teams/:teamId/environment/interact', requireUser, userRateLimit, environmentInteract);
+api.post(
+  '/teams/:teamId/environment/interact',
+  requireUser,
+  userRateLimit,
+  environmentInteract
+);
 
-api.post('/teams/:teamId/environment/interact', requireUser, userRateLimit, environmentInteract);
+api.post(
+  '/teams/:teamId/environment/interact',
+  requireUser,
+  userRateLimit,
+  environmentInteract
+);
 
 // ── GET /users/preview ── Preview user info by UID ───────────────────────────
 api.get('/users/preview', requireUser, userRateLimit, getUserPreview);

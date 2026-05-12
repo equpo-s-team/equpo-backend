@@ -11,9 +11,12 @@ interface ApiNinjasQuote {
 
 export const getQuote: RequestHandler = async (_req, res, next) => {
   try {
-    const response = await globalThis.fetch('https://api.api-ninjas.com/v1/quotes', {
-      headers: { 'X-Api-Key': config.apiNinjasKey },
-    });
+    const response = await globalThis.fetch(
+      'https://api.api-ninjas.com/v1/quotes',
+      {
+        headers: { 'X-Api-Key': config.apiNinjasKey },
+      }
+    );
 
     if (!response.ok) {
       throw new EqupoError(
@@ -25,7 +28,10 @@ export const getQuote: RequestHandler = async (_req, res, next) => {
     const data = (await response.json()) as ApiNinjasQuote[];
 
     if (!data.length) {
-      throw new EqupoError('No quotes returned from API', ERROR_STATUS.SERVER_ERROR);
+      throw new EqupoError(
+        'No quotes returned from API',
+        ERROR_STATUS.SERVER_ERROR
+      );
     }
 
     const { quote, author, category } = data[0];
