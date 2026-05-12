@@ -43,5 +43,6 @@ jobs:
       - name: Run tests
         run: npm test
         env:
+          API_NINJAS_KEY: ${{ secrets.API_NINJAS_KEY }}
           ZEGO_APP_ID: ${{ secrets.ZEGO_APP_ID }}
           ZEGO_SERVER_SECRET: ${{ secrets.ZEGO_SERVER_SECRET }}
