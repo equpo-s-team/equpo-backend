@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assertBody } from '../dist/utils/assertBody.js';
-import { createTaskSchema } from '../dist/domains/task/schemas/createTaskSchema.js';
-import { updateTaskSchema } from '../dist/domains/task/schemas/updateTaskSchema.js';
+import { assertBody } from '../../../dist/utils/assertBody.js';
+import { createTaskSchema } from '../../../dist/domains/task/schemas/createTaskSchema.js';
+import { updateTaskSchema } from '../../../dist/domains/task/schemas/updateTaskSchema.js';
 import {
   taskListPaginationQuery,
   teamTaskParam,
-} from '../dist/domains/task/schemas/params.js';
+  reportOverviewQuery,
+} from '../../../dist/domains/task/schemas/params.js';
 
 test('createTaskSchema validates a full valid payload', () => {
   const parsed = assertBody(createTaskSchema, {
@@ -129,3 +130,12 @@ test('teamTaskParam rejects non-UUID taskId', () => {
   });
 });
 
+test('reportOverviewQuery sets defaults', () => {
+  const parsed = reportOverviewQuery.parse({});
+  assert.equal(parsed.days, 30);
+  assert.equal(parsed.overdueLimit, 10);
+});
+
+test('reportOverviewQuery rejects overdueLimit above 50', () => {
+  assert.throws(() => reportOverviewQuery.parse({ overdueLimit: '51' }));
+});

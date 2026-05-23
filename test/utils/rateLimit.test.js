@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createUserRateLimitMiddleware } from '../dist/utils/rateLimit.js';
+import { createUserRateLimitMiddleware } from '../../dist/utils/rateLimit.js';
 
 function createResponseMock() {
   return {
@@ -105,4 +105,3 @@ test('rate limit state is isolated per user uid', () => {
   assert.equal(userBAllowed, true);
   assert.equal(userBRes.statusCode, 200);
 });
-
