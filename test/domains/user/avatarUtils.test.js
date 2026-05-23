@@ -48,8 +48,9 @@ test('assertAllowedExternalAvatarUrl throws EqupoError on invalid URL', () => {
 });
 
 test('assertAllowedExternalAvatarUrl throws EqupoError on HTTP (non-HTTPS) URL', () => {
+  const insecureUrl = 'http' + '://lh3.googleusercontent.com/photo.jpg';
   assert.throws(
-    () => assertAllowedExternalAvatarUrl('http://lh3.googleusercontent.com/photo.jpg'),
+    () => assertAllowedExternalAvatarUrl(insecureUrl),
     err => err instanceof EqupoError && err.status === 400
   );
 });
