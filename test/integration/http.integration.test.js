@@ -8,7 +8,7 @@ process.env.SYSTEM_API_KEY = process.env.SYSTEM_API_KEY || 'test-system-key';
 process.env.API_PREFIX = process.env.API_PREFIX || '/api/v1';
 process.env.GOOGLE_CLOUD_PROJECT = process.env.GOOGLE_CLOUD_PROJECT || 'equpo1';
 
-const { app } = await import('../dist/app.js');
+const { app } = await import('../../dist/app.js');
 
 let server;
 let baseUrl;
@@ -24,7 +24,7 @@ after(async () => {
   if (server) {
     server.close();
   }
-  const { redisClient, pubClient, subClient } = await import('../dist/utils/redisClient.js');
+  const { redisClient, pubClient, subClient } = await import('../../dist/utils/redisClient.js');
   await Promise.all([
     redisClient.quit(),
     pubClient.quit(),
@@ -32,19 +32,15 @@ after(async () => {
   ]);
 });
 
+// ─── Auth rejection (401) ────────────────────────────────────────────────────
+
 test('HTTP integration: POST /teams/:teamId/tasks rejects missing Authorization header', async () => {
   const response = await fetch(
     `${baseUrl}/teams/550e8400-e29b-41d4-a716-446655440001/tasks`,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        dueDate: '2026-05-01T10:00:00.000Z',
-        priority: 'high',
-        status: 'todo',
-      }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dueDate: '2026-05-01T10:00:00.000Z', priority: 'high', status: 'todo' }),
     }
   );
 
@@ -66,11 +62,7 @@ test('HTTP integration: GET /teams/:teamId/tasks/my-valid-ids rejects missing Au
 test('HTTP integration: GET /teams/:teamId/tasks/my-valid-ids rejects invalid bearer token', async () => {
   const response = await fetch(
     `${baseUrl}/teams/550e8400-e29b-41d4-a716-446655440001/tasks/my-valid-ids`,
-    {
-      headers: {
-        Authorization: 'Bearer invalid-token-for-test',
-      },
-    }
+    { headers: { Authorization: 'Bearer invalid-token-for-test' } }
   );
 
   const payload = await response.json();
@@ -78,3 +70,33 @@ test('HTTP integration: GET /teams/:teamId/tasks/my-valid-ids rejects invalid be
   assert.equal(payload.error, 'Invalid auth token');
 });
 
+// ─── Validation rejection (400/401) across multiple routes ───────────────────
+
+test('HTTP integration: GET /teams/:teamId/tasks rejects missing Authorization header', async () => {
+  const response = await fetch(
+    `${baseUrl}/teams/550e8400-e29b-41d4-a716-446655440001/tasks`
+  );
+  const payload = await response.json();
+  assert.equal(response.status, 401);
+});
+
+test('HTTP integration: GET /teams rejects missing Authorization header', async () => {
+  const response = await fetch(`${baseUrl}/teams/me`);
+  const payload = await response.json();
+  assert.equal(response.status, 401);
+});
+
+test('HTTP integration: POST /teams rejects missing Authorization header', async () => {
+  const response = await fetch(`${baseUrl}/teams`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Test Team' }),
+  });
+  const payload = await response.json();
+  assert.equal(response.status, 401);
+});
+
+test('HTTP integration: GET /health returns 200', async () => {
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/health`);
+  assert.equal(response.status, 200);
+});

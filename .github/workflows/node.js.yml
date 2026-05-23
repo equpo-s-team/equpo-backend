@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -50,9 +52,14 @@ jobs:
       - name: TypeScript type check
         run: npx tsc --noEmit
 
-      - name: Run tests
-        run: npm test
+      - name: Run tests with coverage
+        run: npm run test:coverage
         env:
           API_NINJAS_KEY: ${{ secrets.API_NINJAS_KEY }}
           ZEGO_APP_ID: ${{ secrets.ZEGO_APP_ID }}
           ZEGO_SERVER_SECRET: ${{ secrets.ZEGO_SERVER_SECRET }}
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@4006f663ecaf1f8093e8e4abb9227f6041f52216
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
