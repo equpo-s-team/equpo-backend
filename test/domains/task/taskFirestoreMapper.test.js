@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTaskFirestoreDocument } from '../dist/domains/task/firestore/taskFirestoreMapper.js';
+import { buildTaskFirestoreDocument } from '../../../dist/domains/task/firestore/taskFirestoreMapper.js';
 
 test('buildTaskFirestoreDocument maps backend task shape to Firestore payload', () => {
   const payload = buildTaskFirestoreDocument({
@@ -74,7 +74,3 @@ test('buildTaskFirestoreDocument omits name and description when not provided', 
   assert.equal(Object.hasOwn(payload, 'name'), false);
   assert.equal(Object.hasOwn(payload, 'description'), false);
 });
-
-
-
-
