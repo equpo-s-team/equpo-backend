@@ -66,6 +66,37 @@ npm start
 npm run dev
 ```
 
+## Tests
+
+El suite usa el runner nativo de Node.js (`node:test` + `node:assert`) e importa desde `dist/` (TypeScript compilado).
+
+```bash
+npm test                # ejecuta los tests
+npm run test:coverage   # ejecuta con reporte de cobertura (c8 → coverage/lcov.info)
+```
+
+La cobertura incluye schemas Zod, utilidades puras, guards y funciones de DB testeadas con un mock de `PoolClient`. Quedan excluidos del umbral solo los handlers, Firestore helpers y Socket.IO, que requieren mock a nivel de modulo.
+
+### Estructura de tests
+
+```
+test/
+├── constants/          # httpStatusCodes
+├── domains/
+│   ├── achievement/    # schemas, constantes, computeEnvironmentHealth, checkAchievementsOnTaskComplete
+│   ├── reward/         # schemas
+│   ├── room/           # schemas, generacion de tokens Zego
+│   ├── task/           # schemas, Firestore mapper, utils puras + DB (mock PoolClient), guards, grantTaskCompletionRewards
+│   ├── team/           # schemas, constantes de roles, guards (mock PoolClient)
+│   └── user/           # xpUtils, validacion de URLs de avatar
+├── helpers/
+│   └── mockClient.js   # makeSequentialClient — mock de PoolClient compartido
+├── integration/        # pruebas HTTP end-to-end
+└── utils/              # assertBody, endpoint, EqupoError, rateLimit
+```
+
+El analisis de calidad estatica se envia automaticamente a SonarCloud tras cada push a `develop` o `main`.
+
 ## Estructura general de carpetas (objetivo)
 
 ```text
