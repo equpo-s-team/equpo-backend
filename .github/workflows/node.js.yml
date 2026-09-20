@@ -22,27 +22,25 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
-      # Correcciones automáticas
       - name: Auto-fix lint issues
         run: npm run lint -- --fix
 
       - name: Auto-format code
         run: npm run format
 
-      # Validaciones
       - name: Run lint check
         run: npm run lint
 
@@ -60,6 +58,6 @@ jobs:
           ZEGO_SERVER_SECRET: ${{ secrets.ZEGO_SERVER_SECRET }}
 
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@4006f663ecaf1f8093e8e4abb9227f6041f52216
+        uses: SonarSource/sonarqube-scan-action@ba9859eae8dd6bd29e412f25ddbbef3d032000f4 # v8.2.2
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
