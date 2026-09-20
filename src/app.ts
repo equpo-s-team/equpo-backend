@@ -68,6 +68,8 @@ import winston from 'winston';
 
 export const app: Application = express();
 
+app.disable('x-powered-by');
+
 app.use(
   cors({
     origin(origin, callback) {
