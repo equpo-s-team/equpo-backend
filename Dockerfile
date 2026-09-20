@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:26.7.0-alpine AS builder
+FROM node:24-alpine AS builder
 
 WORKDIR /app
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false NPM_CONFIG_FUND=false
@@ -14,7 +14,7 @@ RUN npm run build \
   && find dist -name "*.d.ts" -delete \
   && find dist -name "*.js.map" -delete
 
-FROM node:26.7.0-alpine AS runner
+FROM node:24-alpine AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production \
@@ -22,8 +22,8 @@ ENV NODE_ENV=production \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
     NPM_CONFIG_FUND=false
 
-# The node:20-alpine tag is frozen (Node 20 is EOL), so patched Alpine packages
-# (openssl/libcrypto3/libssl3) must be pulled explicitly.
+# Pull patched Alpine packages (e.g. openssl/libcrypto3/libssl3) that the base
+# image may not ship yet.
 RUN apk upgrade --no-cache
 
 COPY package.json package-lock.json* ./
