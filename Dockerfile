@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:20-alpine AS builder
+FROM node:26.7.0-alpine AS builder
 
 WORKDIR /app
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false NPM_CONFIG_FUND=false
@@ -14,7 +14,7 @@ RUN npm run build \
   && find dist -name "*.d.ts" -delete \
   && find dist -name "*.js.map" -delete
 
-FROM node:20-alpine AS runner
+FROM node:26.7.0-alpine AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production \
