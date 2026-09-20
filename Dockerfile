@@ -22,6 +22,10 @@ ENV NODE_ENV=production \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
     NPM_CONFIG_FUND=false
 
+# The node:20-alpine tag is frozen (Node 20 is EOL), so patched Alpine packages
+# (openssl/libcrypto3/libssl3) must be pulled explicitly.
+RUN apk upgrade --no-cache
+
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
   && npm cache clean --force
